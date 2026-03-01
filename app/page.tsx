@@ -8,40 +8,65 @@ import {
   Input, 
   Button, 
   Stack, 
-  PageTitle 
+  PageTitle,
+  Alert
 } from "@tiendanube/components";
 
 export default function Page() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [result, setResult] = useState<any>(null);
 
-  // Evita errores de hidratación asegurando que el cliente esté listo
   useEffect(() => {
     setMounted(true);
   }, []);
 
   if (!mounted) return null;
 
-  const handleImport = () => {
-    if (!url) return alert('Ingresa una URL');
+  const handleImport = async () => {
+    if (!url) return alert('Por favor, ingresa una URL de WordPress');
     setLoading(true);
-    setTimeout(() => setLoading(false), 2000);
+    setResult(null);
+    
+    try {
+      const response = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wpUrl: url }),
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setResult({ type: 'success', message: `¡Éxito! Se procesaron ${data.processed.length} entradas.` });
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (err: any) {
+      setResult({ type: 'danger', message: 'Error: ' + err.message });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <NimbusShell>
       <Stack spacing="loose">
         <PageTitle
-          title="Importador WordPress"
-          subtitle="Carga tus posts a Tiendanube"
+          title="Importador de Contenido"
+          subtitle="Carga posts de WordPress directamente a tus páginas de Tiendanube"
         />
+        
+        {result && (
+          <Alert appearance={result.type} title={result.message} />
+        )}
+
         <Card>
           <Card.Section>
             <Stack spacing="tight">
-              <Text>URL de WordPress</Text>
+              <Text>URL de tu WordPress (ej: https://misitio.com)</Text>
               <Input
-                placeholder="https://tu-sitio.com"
+                placeholder="https://tu-blog-wp.com"
                 value={url}
                 onChange={(e: any) => setUrl(e.target.value)}
               />
@@ -50,7 +75,7 @@ export default function Page() {
                 loading={loading}
                 onClick={handleImport}
               >
-                Comenzar
+                Sincronizar ahora
               </Button>
             </Stack>
           </Card.Section>
