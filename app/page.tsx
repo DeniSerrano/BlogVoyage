@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
-export default function Page() {
+function ImporterContent() {
   const searchParams = useSearchParams();
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,7 +43,6 @@ export default function Page() {
     }
   };
 
-  // Si no hay store_id, mostrar botón para autenticar
   if (!storeId) {
     return (
       <div style={{
@@ -146,5 +145,13 @@ export default function Page() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div style={{ padding: '40px', textAlign: 'center' }}>Cargando...</div>}>
+      <ImporterContent />
+    </Suspense>
   );
 }
