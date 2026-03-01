@@ -1,6 +1,5 @@
 'use client';
 import React, { useState } from 'react';
-// Importamos solo lo más básico
 import { Card, Text, Input, Button } from '@tiendanube/components';
 
 export default function Home() {
@@ -10,7 +9,7 @@ export default function Home() {
 
   const handleImport = async () => {
     setLoading(true);
-    setStatus({ type: 'info', message: 'Conectando con WordPress...' });
+    setStatus({ type: 'info', message: 'Iniciando importación...' });
     
     const params = new URLSearchParams(window.location.search);
     const storeId = params.get('store_id');
@@ -21,43 +20,46 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wpUrl, storeId }),
       });
-      const data = await res.json();
-      
       if (res.ok) {
-        setStatus({ type: 'success', message: '¡Importación completada!' });
+        setStatus({ type: 'success', message: '¡Importación finalizada!' });
       } else {
-        setStatus({ type: 'error', message: data.error || 'Error en la importación' });
+        setStatus({ type: 'error', message: 'Error al importar productos.' });
       }
     } catch (e) {
-      setStatus({ type: 'error', message: 'Error de conexión' });
+      setStatus({ type: 'error', message: 'Error de red.' });
     }
     setLoading(false);
   };
 
   return (
-    <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+    <div style={{ padding: '32px', maxWidth: '800px' }}>
       <div style={{ marginBottom: '24px' }}>
-        {/* Quitamos el 'variant' que causó el último error */}
-        <Text size="large" weight="bold">Migrador de Productos WordPress</Text>
+        {/* Usamos "featured" que es lo que tu error dijo que sí acepta */}
+        <Text appearance="featured">Migrador de Productos WordPress</Text>
       </div>
       
       <Card>
-        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <Text>Copia la URL de tu WordPress abajo para empezar:</Text>
+        <div style={{ padding: '24px' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <Text appearance="base">Configura la URL de tu sitio WordPress para sincronizar con tu Tiendanube.</Text>
+          </div>
           
-          <Input 
-            placeholder="https://tu-sitio.com" 
-            value={wpUrl}
-            onChange={(e) => setWpUrl(e.target.value)}
-          />
-          
-          <div style={{ marginTop: '10px' }}>
-            <Button 
-              loading={loading}
-              onClick={handleImport}
-            >
-              Comenzar Importación
-            </Button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <Input 
+              placeholder="https://tu-sitio-wp.com" 
+              value={wpUrl}
+              onChange={(e) => setWpUrl(e.target.value)}
+            />
+            
+            <div style={{ width: 'fit-content' }}>
+              <Button 
+                appearance="primary"
+                loading={loading}
+                onClick={handleImport}
+              >
+                Comenzar Importación
+              </Button>
+            </div>
           </div>
         </div>
       </Card>
@@ -65,12 +67,12 @@ export default function Home() {
       {status.message && (
         <div style={{ 
           marginTop: '20px', 
-          padding: '12px', 
+          padding: '16px', 
+          border: '1px solid #ddd', 
           borderRadius: '4px',
-          backgroundColor: status.type === 'error' ? '#fff1f0' : '#f6ffed',
-          border: '1px solid #ccc'
+          backgroundColor: status.type === 'error' ? '#fff1f0' : '#f6ffed'
         }}>
-          <Text>{status.message}</Text>
+          <Text appearance="base">{status.message}</Text>
         </div>
       )}
     </div>
