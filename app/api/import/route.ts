@@ -1,96 +1,77 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function POST(request: Request) {
   try {
-    const { wpUrl, storeId } = await request.json();
-
-    if (!storeId) {
-      return NextResponse.json(
-        { success: false, error: 'No se indicó el store_id. Autenticá tu tienda primero.' },
-        { status: 400 }
-      );
-    }
-
-    // Buscar el access_token en Supabase
-    const { data: tienda, error: dbError } = await supabase
-      .from('tiendas')
-      .select('access_token')
-      .eq('store_id', storeId)
-      .single();
-
-    if (dbError || !tienda?.access_token) {
-      return NextResponse.json(
-        { success: false, error: 'Tienda no autenticada. Instalá la app primero.' },
-        { status: 401 }
-      );
-    }
-
-    const accessToken = tienda.access_token;
+    const { wpUrl } = await request.json();
     const cleanUrl = wpUrl.replace(/\/$/, '');
 
-    // Obtener posts de WordPress
-    const wpRes = await fetch(`${cleanUrl}/wp-json/wp/v2/posts?per_page=10`);
-    if (!wpRes.ok) throw new Error('WordPress no respondió correctamente.');
-    const posts = await wpRes.json();
+    const wpRes = await fetch(`${cleanUrl}/wp-json/wp/v2/posts?per_page=20`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; WP-Importer/1.0)',
+        'Accept': 'application/json',
+      },
+    });
 
-    const results = [];
-    for (const post of posts) {
-      const slug = post.title.rendered
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
-
-      // Truncar título a 50 caracteres (límite de Tiendanube para menu translation)
-      const title = post.title.rendered.length > 50
-        ? post.title.rendered.substring(0, 47) + '...'
-        : post.title.rendered;
-
-      const tnRes = await fetch(
-        `https://api.tiendanube.com/2025-03/${storeId}/pages`,
-        {
-          method: 'POST',
-          headers: {
-            'Authentication': `bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'User-Agent': 'WP-Importer (admin@example.com)',
-          },
-          body: JSON.stringify({
-            page: {
-              publish: true,
-              i18n: {
-                es_AR: {
-                  title: title,
-                  content: post.content.rendered,
-                  seo_handle: slug,
-                  seo_title: post.title.rendered,
-                  seo_description: '',
-                },
-              },
-            },
-          }),
-        }
-      );
-
-      if (!tnRes.ok) {
-        const errorData = await tnRes.json();
-        console.error(`Fallo en Tiendanube:`, errorData);
+    if (!wpRes.ok) {
+      const status = wpRes.status;
+      if (status === 404) {
+        return NextResponse.json({
+          success: false,
+          error: `No se encontró la API REST de WordPress en ${cleanUrl}. Verificá que sea un sitio WordPress con la API habilitada.`,
+        }, { status: 400 });
       }
-
-      results.push({
-        title: post.title.rendered,
-        success: tnRes.ok,
-      });
+      if (status === 403) {
+        return NextResponse.json({
+          success: false,
+          error: `El sitio bloqueó el acceso a la API REST (403 Forbidden). Puede tener protección anti-bot.`,
+        }, { status: 400 });
+      }
+      return NextResponse.json({
+        success: false,
+        error: `WordPress respondió con error HTTP ${status}.`,
+      }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, processed: results });
+    const contentType = wpRes.headers.get('content-type') || '';
+    if (!contentType.includes('application/json') && !contentType.includes('text/json')) {
+      return NextResponse.json({
+        success: false,
+        error: `El sitio no devolvió JSON. Posiblemente no es WordPress o la API REST está deshabilitada.`,
+      }, { status: 400 });
+    }
+
+    const text = await wpRes.text();
+    let posts;
+    try {
+      posts = JSON.parse(text);
+    } catch {
+      return NextResponse.json({
+        success: false,
+        error: `No se pudo parsear la respuesta de WordPress. Respuesta inválida.`,
+      }, { status: 400 });
+    }
+
+    if (!Array.isArray(posts)) {
+      return NextResponse.json({
+        success: false,
+        error: `La respuesta de WordPress no es una lista de posts.`,
+      }, { status: 400 });
+    }
+
+    const previews = posts.map((post: any) => ({
+      wpId: post.id,
+      title: post.title?.rendered || 'Sin título',
+      excerpt: (post.excerpt?.rendered || '').replace(/<[^>]*>/g, '').substring(0, 150),
+      date: post.date,
+      slug: post.slug,
+      link: post.link,
+    }));
+
+    return NextResponse.json({ success: true, posts: previews });
   } catch (error: any) {
-    console.error('Error Crítico:', error.message);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({
+      success: false,
+      error: error.message || 'Error inesperado al conectar con WordPress',
+    }, { status: 500 });
   }
 }
