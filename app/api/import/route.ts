@@ -1,43 +1,50 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 export async function POST(request: Request) {
-  const { wpUrl, storeId } = await request.json();
-
-  // 1. Buscar el token de esta tienda en nuestra base de datos (Supabase)
-  const { data: tienda } = await supabase
-    .from('tiendas')
-    .select('access_token')
-    .eq('store_id', storeId)
-    .single();
-
-  if (!tienda) return NextResponse.json({ error: 'Tienda no vinculada' }, { status: 400 });
+  const { wpUrl, accessToken, storeId } = await request.json();
 
   try {
-    // 2. Traer productos de WordPress (usando su API pública)
-    const wpRes = await fetch(`${wpUrl}/wp-json/wp/v2/product?per_page=10`);
-    const products = await wpRes.json();
+    // 1. Obtener posts de WordPress (usamos _embed para traer las imágenes)
+    const wpResponse = await fetch(`${wpUrl}/wp-json/wp/v2/posts?_embed&per_page=10`);
+    const posts = await wpResponse.json();
 
-    // 3. Subir cada producto a Tiendanube
-    for (const prod of products) {
-      await fetch(`https://api.tiendanube.com/v1/${storeId}/products`, {
+    const results = [];
+
+    // 2. Iterar y subir a Tiendanube
+    for (const post of posts) {
+      // Extraer imagen destacada si existe
+      const featuredImage = post._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+      
+      // Preparar el cuerpo con la imagen inyectada al principio del contenido
+      const pageData = {
+        name: { es: post.title.rendered },
+        content: { 
+          es: featuredImage 
+            ? `<img src="${featuredImage}" style="max-width:100%;"><br/>${post.content.rendered}` 
+            : post.content.rendered 
+        },
+        published: true,
+        handle: { es: post.slug }
+      };
+
+      // 3. POST a la API de Tiendanube
+      const tnuResponse = await fetch(`https://api.tiendanube.com/v1/${storeId}/pages`, {
         method: 'POST',
         headers: {
+          'Authentication': `bearer ${accessToken}`,
           'Content-Type': 'application/json',
-          'Authentication': `bearer ${tienda.access_token}`
+          'User-Agent': 'WP-Importer (tu-email@dominio.com)' // Tiendanube pide un User-Agent identificable
         },
-        body: JSON.stringify({
-          name: { es: prod.title.rendered },
-          description: { es: prod.content.rendered },
-          images: prod.featured_media ? [{ src: prod.featured_media_url }] : []
-        })
+        body: JSON.stringify(pageData)
       });
+
+      const result = await tnuResponse.json();
+      results.push({ title: post.title.rendered, status: tnuResponse.ok });
     }
 
-    return NextResponse.json({ message: `Importación de ${products.length} productos completada` });
+    return NextResponse.json({ message: 'Proceso completado', detail: results });
+
   } catch (error) {
-    return NextResponse.json({ error: 'Error al importar' }, { status: 500 });
+    return NextResponse.json({ error: 'Fallo la importación', details: error }, { status: 500 });
   }
 }
