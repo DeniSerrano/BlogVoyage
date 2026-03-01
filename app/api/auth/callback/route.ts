@@ -1,53 +1,66 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function GET(request: Request) {
-    const { searchParams } = new URL(request.url);
-    const code = searchParams.get('code');
+  const { searchParams } = new URL(request.url);
+  const code = searchParams.get('code');
 
-    // 1. Verificación básica del código
-    if (!code) {
-        return NextResponse.json({ error: 'No code found' }, { status: 400 });
+  if (!code) {
+    return NextResponse.json({ error: 'No se recibió el código de autorización' }, { status: 400 });
+  }
+
+  try {
+    // Intercambiar el code por access_token
+    const response = await fetch('https://www.tiendanube.com/apps/authorize/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'WP-Importer (admin@example.com)',
+      },
+      body: JSON.stringify({
+        client_id: process.env.TIENDANUBE_CLIENT_ID,
+        client_secret: process.env.TIENDANUBE_CLIENT_SECRET,
+        grant_type: 'authorization_code',
+        code: code.trim(),
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!data.access_token || !data.user_id) {
+      console.error('Error de Tiendanube:', data);
+      return NextResponse.json(
+        { error: 'No se pudo obtener el token', details: data },
+        { status: 401 }
+      );
     }
 
-    const clientId = process.env.TIENDANUBE_CLIENT_ID?.trim();
-    const clientSecret = process.env.TIENDANUBE_CLIENT_SECRET?.trim();
+    // Guardar en Supabase
+    const { error: dbError } = await supabase.from('tiendas').upsert(
+      {
+        store_id: String(data.user_id),
+        access_token: data.access_token,
+      },
+      { onConflict: 'store_id' }
+    );
 
-    try {
-        // 2. Intercambio del código por el Access Token
-        const response = await fetch('https://www.tiendanube.com/apps/authorize/token', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'WP-Migration-Maker (tu-email@ejemplo.com)' // OBLIGATORIO para Tiendanube
-            },
-            body: JSON.stringify({
-                client_id: clientId,
-                client_secret: clientSecret,
-                grant_type: 'authorization_code',
-                code: code.trim(),
-            }),
-        });
-
-        const data = await response.json();
-
-        // 3. Manejo de la respuesta
-        if (data.access_token) {
-            console.log('Token obtenido con éxito:', data.user_id);
-            
-            // Aquí deberías guardar el data.access_token y data.user_id en tu base de datos
-            
-            // Redirigimos al Home de tu app una vez autenticado
-            return NextResponse.redirect(new URL('/', request.url));
-        } else {
-            // Si Tiendanube devuelve error (como invalid_client)
-            return NextResponse.json({ 
-                error: 'Tiendanube Auth Failed', 
-                details: data 
-            }, { status: 401 });
-        }
-
-    } catch (error) {
-        console.error('Error en el proceso de callback:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    if (dbError) {
+      console.error('Error guardando en Supabase:', dbError);
+      return NextResponse.json({ error: 'Error guardando credenciales' }, { status: 500 });
     }
+
+    console.log(`Tienda ${data.user_id} autenticada correctamente`);
+
+    // Redirigir al home con el store_id
+    const baseUrl = new URL(request.url).origin;
+    return NextResponse.redirect(`${baseUrl}/?store_id=${data.user_id}`);
+  } catch (error: any) {
+    console.error('Error en callback:', error.message);
+    return NextResponse.json({ error: 'Error interno' }, { status: 500 });
+  }
 }
