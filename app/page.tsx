@@ -4,11 +4,9 @@ import { Card, Text, Input, Button } from '@tiendanube/components';
 
 export default function Home() {
   const [wpUrl, setWpUrl] = useState('');
-  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState({ type: 'default', message: '' });
 
   const handleImport = async () => {
-    setLoading(true);
     setStatus({ type: 'primary', message: 'Iniciando importación...' });
     
     try {
@@ -25,7 +23,6 @@ export default function Home() {
     } catch (e) {
       setStatus({ type: 'danger', message: 'Error de conexión.' });
     }
-    setLoading(false);
   };
 
   return (
@@ -51,7 +48,6 @@ export default function Home() {
             <div style={{ marginTop: '10px' }}>
               <Button 
                 appearance="primary"
-                loading={loading}
                 onClick={handleImport}
               >
                 Comenzar Importación
