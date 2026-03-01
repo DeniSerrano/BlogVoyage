@@ -61,6 +61,28 @@ async function safeFetch(url: string, options?: RequestInit) {
   return data;
 }
 
+// Helper: get store info by dispatching Nexo action directly
+async function getNexoStoreInfo(nexo: any): Promise<{ id: string; name: string } | null> {
+  return new Promise((resolve) => {
+    try {
+      // Try dispatching the store info action
+      const unsub = nexo.suscribe('app/store/info', (data: any) => {
+        unsub?.();
+        resolve(data);
+      });
+      nexo.dispatch('app/store/info');
+
+      // Timeout after 3 seconds
+      setTimeout(() => {
+        unsub?.();
+        resolve(null);
+      }, 3000);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 export default function Page() {
   // Nexo state
   const [nexoReady, setNexoReady] = useState(false);
@@ -87,8 +109,15 @@ export default function Page() {
   useEffect(() => {
     async function initNexo() {
       try {
-        const { create, connect, iAmReady } = await import('@tiendanube/nexo');
-        const { getStoreInfo } = await import('@tiendanube/nexo/helpers');
+        const nexoModule = await import('@tiendanube/nexo');
+        // Try different export patterns
+        const create = nexoModule.create || nexoModule.default?.create;
+        const connect = nexoModule.connect || nexoModule.default?.connect;
+        const iAmReady = nexoModule.iAmReady || nexoModule.default?.iAmReady;
+
+        if (!create || !connect || !iAmReady) {
+          throw new Error('Nexo exports not found');
+        }
 
         const nexo = create({
           clientId: process.env.NEXT_PUBLIC_TIENDANUBE_CLIENT_ID || '0',
@@ -99,15 +128,24 @@ export default function Page() {
         setNexoReady(true);
         iAmReady(nexo);
 
-        // Get store info from Nexo
-        try {
-          const storeInfo = await getStoreInfo(nexo);
-          if (storeInfo?.id) {
-            setStoreId(storeInfo.id);
-            setStoreName(storeInfo.name || '');
+        // Try to get store info via Nexo action
+        const storeInfo = await getNexoStoreInfo(nexo);
+        if (storeInfo?.id) {
+          setStoreId(storeInfo.id);
+          setStoreName(storeInfo.name || '');
+        } else {
+          // Fallback: try to get from URL referrer or ask the API
+          console.warn('Could not get store info from Nexo, checking Supabase...');
+          // Use our auth callback stored store_id
+          try {
+            const res = await fetch('/api/auth/store-id');
+            const data = await res.json();
+            if (data.storeId) {
+              setStoreId(data.storeId);
+            }
+          } catch {
+            console.warn('No fallback store_id available');
           }
-        } catch (e) {
-          console.warn('No se pudo obtener store info de Nexo:', e);
         }
       } catch (err: any) {
         setNexoError(err?.message || 'Error conectando con Nexo');
@@ -147,7 +185,6 @@ export default function Page() {
       setPosts(data.posts);
       setSelectedIds(new Set(data.posts.map((p: WPPost) => p.wpId)));
 
-      // Check duplicates
       if (storeId) {
         try {
           const dupData = await safeFetch('/api/check-duplicates', {
@@ -156,9 +193,7 @@ export default function Page() {
             body: JSON.stringify({ storeId, slugs: data.posts.map((p: WPPost) => p.slug) }),
           });
           if (dupData.success) setDuplicates(dupData.duplicates);
-        } catch {
-          // Silently ignore duplicate check errors
-        }
+        } catch {}
       }
 
       setStep('preview');
@@ -237,8 +272,8 @@ export default function Page() {
   const selectedDuplicates = posts.filter(
     (p) => selectedIds.has(p.wpId) && duplicates[p.slug]
   ).length;
-  const successCount = results.filter((r) => r.success).length;
-  const failCount = results.filter((r) => !r.success).length;
+  const successCount = (results || []).filter((r) => r.success).length;
+  const failCount = (results || []).filter((r) => !r.success).length;
 
   // ─── Nexo loading / error ───
   if (!nexoReady) {
@@ -266,7 +301,7 @@ export default function Page() {
         {storeId ? (
           <Tag appearance="primary">{storeName || `Tienda #${storeId}`}</Tag>
         ) : (
-          <Tag appearance="warning">Sin tienda conectada</Tag>
+          <Tag appearance="warning">Identificando tienda...</Tag>
         )}
       </Box>
 
@@ -286,20 +321,9 @@ export default function Page() {
         </Button>
       </Box>
 
-      {/* No store warning */}
-      {!storeId && (
-        <Alert appearance="warning" title="Tienda no identificada">
-          <Text>
-            No se pudo obtener la información de la tienda. Verificá que la app esté
-            correctamente instalada y recargá la página.
-          </Text>
-        </Alert>
-      )}
-
       {/* ═══ IMPORT TAB ═══ */}
       {activeTab === 'import' && (
         <>
-          {/* STEP: URL */}
           {step === 'url' && (
             <Card>
               <Card.Body>
@@ -333,15 +357,12 @@ export default function Page() {
             </Card>
           )}
 
-          {/* STEP: PREVIEW */}
           {step === 'preview' && (
             <Box display="flex" flexDirection="column" gap="4">
               {hasDuplicates && (
                 <Alert appearance="warning" title="Se encontraron páginas duplicadas">
                   <Box display="flex" flexDirection="column" gap="2">
-                    <Text>
-                      Algunos posts ya existen como páginas en tu tienda.
-                    </Text>
+                    <Text>Algunos posts ya existen como páginas en tu tienda.</Text>
                     <Checkbox
                       name="overwrite"
                       label={`Sobreescribir páginas existentes (${selectedDuplicates} duplicados seleccionados)`}
@@ -353,24 +374,18 @@ export default function Page() {
                   </Box>
                 </Alert>
               )}
-
               <Card>
                 <Card.Body>
                   <Box display="flex" flexDirection="column" gap="4">
                     <Box display="flex" justifyContent="space-between" alignItems="center">
                       <Box>
                         <Title as="h2">{posts.length} posts encontrados</Title>
-                        <Text color="neutral-textDisabled">
-                          {selectedIds.size} seleccionados
-                        </Text>
+                        <Text color="neutral-textDisabled">{selectedIds.size} seleccionados</Text>
                       </Box>
                       <Button appearance="neutral" onClick={toggleSelectAll}>
-                        {selectedIds.size === posts.length
-                          ? 'Deseleccionar todo'
-                          : 'Seleccionar todo'}
+                        {selectedIds.size === posts.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
                       </Button>
                     </Box>
-
                     {posts.map((post) => {
                       const isDup = duplicates[post.slug];
                       return (
@@ -380,11 +395,7 @@ export default function Page() {
                           alignItems="flex-start"
                           gap="2"
                           padding="2"
-                          borderColor={
-                            selectedIds.has(post.wpId)
-                              ? 'primary-interactive'
-                              : 'neutral-surfaceHighlight'
-                          }
+                          borderColor={selectedIds.has(post.wpId) ? 'primary-interactive' : 'neutral-surfaceHighlight'}
                           borderStyle="solid"
                           borderWidth="1"
                           borderRadius="2"
@@ -410,11 +421,8 @@ export default function Page() {
                         </Box>
                       );
                     })}
-
                     <Box display="flex" gap="2">
-                      <Button appearance="neutral" onClick={reset}>
-                        Volver
-                      </Button>
+                      <Button appearance="neutral" onClick={reset}>Volver</Button>
                       <Button
                         appearance="primary"
                         onClick={handleImport}
@@ -429,30 +437,15 @@ export default function Page() {
             </Box>
           )}
 
-          {/* STEP: IMPORTING */}
           {step === 'importing' && (
             <Card>
               <Card.Body>
-                <Box
-                  display="flex"
-                  flexDirection="column"
-                  alignItems="center"
-                  gap="4"
-                  padding="8"
-                >
+                <Box display="flex" flexDirection="column" alignItems="center" gap="4" padding="8">
                   <Spinner size="large" />
                   <Title as="h2">Importando...</Title>
-                  <Text color="neutral-textDisabled">
-                    Creando páginas en tu tienda de Tiendanube
-                  </Text>
+                  <Text color="neutral-textDisabled">Creando páginas en tu tienda</Text>
                   <Box width="100%">
-                    <Box
-                      backgroundColor="neutral-surfaceHighlight"
-                      borderRadius="2"
-                      height="8px"
-                      overflow="hidden"
-                      width="100%"
-                    >
+                    <Box backgroundColor="neutral-surfaceHighlight" borderRadius="2" height="8px" overflow="hidden" width="100%">
                       <Box
                         backgroundColor="primary-interactive"
                         height="8px"
@@ -462,9 +455,7 @@ export default function Page() {
                       />
                     </Box>
                     <Box display="flex" justifyContent="center" paddingTop="2">
-                      <Text fontWeight="bold" color="primary-interactive">
-                        {progress}%
-                      </Text>
+                      <Text fontWeight="bold" color="primary-interactive">{progress}%</Text>
                     </Box>
                   </Box>
                 </Box>
@@ -472,7 +463,6 @@ export default function Page() {
             </Card>
           )}
 
-          {/* STEP: DONE */}
           {step === 'done' && (
             <Card>
               <Card.Body>
@@ -485,11 +475,11 @@ export default function Page() {
                     <>
                       <Alert appearance="success" title="¡Importación finalizada!">
                         <Text>
-                          {successCount} de {results.length} posts importados correctamente
+                          {successCount} de {(results || []).length} posts importados correctamente
                           {failCount > 0 && ` (${failCount} fallaron)`}
                         </Text>
                       </Alert>
-                      {results.map((r, i) => (
+                      {(results || []).map((r, i) => (
                         <Box
                           key={i}
                           display="flex"
@@ -508,9 +498,7 @@ export default function Page() {
                       ))}
                     </>
                   )}
-                  <Button appearance="primary" onClick={reset}>
-                    Nueva importación
-                  </Button>
+                  <Button appearance="primary" onClick={reset}>Nueva importación</Button>
                 </Box>
               </Card.Body>
             </Card>
@@ -529,9 +517,7 @@ export default function Page() {
                   <Spinner size="large" />
                 </Box>
               ) : history.length === 0 ? (
-                <Text color="neutral-textDisabled">
-                  No hay importaciones anteriores.
-                </Text>
+                <Text color="neutral-textDisabled">No hay importaciones anteriores.</Text>
               ) : (
                 history.map((entry) => (
                   <Box
@@ -549,19 +535,13 @@ export default function Page() {
                       <Text fontWeight="bold">{entry.source_url}</Text>
                       <Text fontSize="caption" color="neutral-textDisabled">
                         {new Date(entry.created_at).toLocaleDateString('es-AR', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
+                          day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
                         })}
                       </Text>
                     </Box>
                     <Box display="flex" gap="2">
                       <Tag appearance="success">{entry.successful} exitosos</Tag>
-                      {entry.failed > 0 && (
-                        <Tag appearance="danger">{entry.failed} fallidos</Tag>
-                      )}
+                      {entry.failed > 0 && <Tag appearance="danger">{entry.failed} fallidos</Tag>}
                       <Tag appearance="neutral">Total: {entry.total_posts}</Tag>
                     </Box>
                   </Box>
