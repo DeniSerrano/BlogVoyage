@@ -4,31 +4,37 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
 
-  if (!code) return NextResponse.json({ error: 'No code' }, { status: 400 });
+  if (!code) return NextResponse.json({ error: 'No code provided' }, { status: 400 });
+
+  // Obtenemos las variables y les quitamos espacios invisibles por seguridad
+  const clientId = process.env.TIENDANUBE_CLIENT_ID?.trim();
+  const clientSecret = process.env.TIENDANUBE_CLIENT_SECRET?.trim();
 
   try {
-    // Intercambiamos el code por el access_token
     const response = await fetch('https://www.tiendanube.com/apps/authorize/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        client_id: process.env.TIENDANUBE_CLIENT_ID,
-        client_secret: process.env.TIENDANUBE_CLIENT_SECRET,
+        client_id: clientId,
+        client_secret: clientSecret,
         grant_type: 'authorization_code',
-        code: code,
+        code: code.trim(),
       }),
     });
 
     const data = await response.json();
 
     if (data.access_token) {
-      // Por ahora, para probar, vamos a redirigir al home de la app
-      // En el futuro, acá guardaremos data.access_token en la base de datos
+      // ÉXITO: El token es válido, volvemos a la pantalla principal de la app
       return NextResponse.redirect(new URL('/', request.url));
     } else {
-      return NextResponse.json({ error: 'Failed to get token', details: data }, { status: 500 });
+      // ERROR: Tiendanube rechazó las credenciales
+      return NextResponse.json({ 
+        error: 'Credenciales inválidas en Vercel', 
+        detalles: data 
+      }, { status: 401 });
     }
   } catch (error) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Error de conexión con Tiendanube' }, { status: 500 });
   }
 }
