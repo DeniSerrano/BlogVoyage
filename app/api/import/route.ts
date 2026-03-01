@@ -56,10 +56,16 @@ export async function POST(request: Request) {
             'User-Agent': 'WP-Importer (admin@example.com)',
           },
           body: JSON.stringify({
-            handle: { es: slug },
-            name: { es: post.title.rendered },
-            content: { es: post.content.rendered },
-            published: true,
+            page: {
+              i18n: {
+                es: {
+                  handle: slug,
+                  name: post.title.rendered,
+                  content: post.content.rendered,
+                },
+              },
+              publish: true,
+            },
           }),
         }
       );
