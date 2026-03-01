@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
+  NimbusShell,
   Card, 
   Text, 
   Input, 
@@ -13,46 +14,48 @@ import {
 export default function Page() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  const handleImport = async () => {
-    if (!url) return alert('Ingresa una URL de WordPress');
+  // Evita errores de hidratación asegurando que el cliente esté listo
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return null;
+
+  const handleImport = () => {
+    if (!url) return alert('Ingresa una URL');
     setLoading(true);
-    
-    // Aquí irá la lógica que armamos antes
-    console.log('Importando desde:', url);
-    
-    setTimeout(() => {
-      setLoading(false);
-      alert('Proceso iniciado (revisa la consola)');
-    }, 2000);
+    setTimeout(() => setLoading(false), 2000);
   };
 
   return (
-    <Stack spacing="loose">
-      <PageTitle
-        title="Importador WordPress a Tiendanube"
-        subtitle="Convierte tus posts de blog en páginas de contenido"
-      />
-      
-      <Card>
-        <Card.Section>
-          <Stack spacing="tight">
-            <Text>URL de tu WordPress</Text>
-            <Input
-              placeholder="https://tu-sitio-wp.com"
-              value={url}
-              onChange={(e: any) => setUrl(e.target.value)}
-            />
-            <Button 
-              appearance="primary" 
-              loading={loading}
-              onClick={handleImport}
-            >
-              Comenzar Importación
-            </Button>
-          </Stack>
-        </Card.Section>
-      </Card>
-    </Stack>
+    <NimbusShell>
+      <Stack spacing="loose">
+        <PageTitle
+          title="Importador WordPress"
+          subtitle="Carga tus posts a Tiendanube"
+        />
+        <Card>
+          <Card.Section>
+            <Stack spacing="tight">
+              <Text>URL de WordPress</Text>
+              <Input
+                placeholder="https://tu-sitio.com"
+                value={url}
+                onChange={(e: any) => setUrl(e.target.value)}
+              />
+              <Button 
+                appearance="primary" 
+                loading={loading}
+                onClick={handleImport}
+              >
+                Comenzar
+              </Button>
+            </Stack>
+          </Card.Section>
+        </Card>
+      </Stack>
+    </NimbusShell>
   );
 }
