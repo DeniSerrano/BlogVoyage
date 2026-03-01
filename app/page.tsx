@@ -48,13 +48,11 @@ export default function Home() {
               name="wordpress_url"
               placeholder="https://tu-sitio-wp.com" 
               value={wpUrl}
-              // En esta versión de Nimbus, 'e' es un objeto con { name, value }
               onChange={(e: any) => setWpUrl(e.value || e.target?.value || e)}
             />
             
             <div style={{ marginTop: '10px' }}>
               <Button 
-                name="btn_import"
                 appearance="primary"
                 loading={loading}
                 onClick={handleImport}
