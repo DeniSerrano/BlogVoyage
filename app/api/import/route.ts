@@ -1,10 +1,40 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(request: Request) {
   try {
-    const { wpUrl } = await request.json();
-    const cleanUrl = wpUrl.replace(/\/$/, "");
+    const { wpUrl, storeId } = await request.json();
 
+    if (!storeId) {
+      return NextResponse.json(
+        { success: false, error: 'No se indicó el store_id. Autenticá tu tienda primero.' },
+        { status: 400 }
+      );
+    }
+
+    // Buscar el access_token en Supabase
+    const { data: tienda, error: dbError } = await supabase
+      .from('tiendas')
+      .select('access_token')
+      .eq('store_id', storeId)
+      .single();
+
+    if (dbError || !tienda?.access_token) {
+      return NextResponse.json(
+        { success: false, error: 'Tienda no autenticada. Instalá la app primero.' },
+        { status: 401 }
+      );
+    }
+
+    const accessToken = tienda.access_token;
+    const cleanUrl = wpUrl.replace(/\/$/, '');
+
+    // Obtener posts de WordPress
     const wpRes = await fetch(`${cleanUrl}/wp-json/wp/v2/posts?per_page=10`);
     if (!wpRes.ok) throw new Error('WordPress no respondió correctamente.');
     const posts = await wpRes.json();
@@ -16,29 +46,32 @@ export async function POST(request: Request) {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '');
 
-      const tnRes = await fetch(`https://api.tiendanube.com/v1/${process.env.TIENDANUBE_USER_ID}/pages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `bearer ${process.env.TIENDANUBE_ACCESS_TOKEN}`,
-          'Content-Type': 'application/json',
-          'User-Agent': 'WP-Importer (admin@example.com)'
-        },
-        body: JSON.stringify({
-          handle: { es: slug },
-          name: { es: post.title.rendered },
-          content: { es: post.content.rendered },
-          published: true
-        })
-      });
+      const tnRes = await fetch(
+        `https://api.tiendanube.com/v1/${storeId}/pages`,
+        {
+          method: 'POST',
+          headers: {
+            'Authentication': `bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'WP-Importer (admin@example.com)',
+          },
+          body: JSON.stringify({
+            handle: { es: slug },
+            name: { es: post.title.rendered },
+            content: { es: post.content.rendered },
+            published: true,
+          }),
+        }
+      );
 
-      const responseData = await tnRes.json();
       if (!tnRes.ok) {
-        console.error(`Fallo en Tiendanube:`, responseData);
+        const errorData = await tnRes.json();
+        console.error(`Fallo en Tiendanube:`, errorData);
       }
 
       results.push({
         title: post.title.rendered,
-        success: tnRes.ok
+        success: tnRes.ok,
       });
     }
 
