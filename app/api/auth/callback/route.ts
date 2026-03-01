@@ -4,12 +4,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
 
-  if (!code) return NextResponse.json({ error: 'No code' }, { status: 400 });
+  // Si no hay código, es un acceso inválido
+  if (!code) return NextResponse.json({ error: 'No code provided' }, { status: 400 });
 
   const clientId = process.env.TIENDANUBE_CLIENT_ID?.trim();
   const clientSecret = process.env.TIENDANUBE_CLIENT_SECRET?.trim();
 
   try {
+    // 1. Intercambiamos el código por el Token
     const response = await fetch('https://www.tiendanube.com/apps/authorize/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -24,16 +26,14 @@ export async function GET(request: Request) {
     const data = await response.json();
 
     if (data.access_token) {
-      // 1. Obtenemos el ID de la tienda que nos envió Tiendanube
-      const user_id = data.user_id; 
-      
-      // 2. Redirigimos directamente al Administrador de Tiendanube, a la sección de tu App
-      // Esto hace que la pantalla negra desaparezca y vuelvas al panel azul
-      return NextResponse.redirect(`https://admin.tiendanube.com/apps/${clientId}/install?shop=${user_id}`);
+      // 2. ¡ÉXITO! Ahora, en lugar de una pantalla negra, 
+      // redirigimos al "Show" de la App dentro del Admin.
+      // Esto fuerza a Tiendanube a cargar tu index (page.tsx) dentro de su marco.
+      return NextResponse.redirect(`https://admin.tiendanube.com/admin/apps/${clientId}/show`);
     } else {
-      return NextResponse.json({ error: 'Credenciales inválidas', detalles: data }, { status: 401 });
+      return NextResponse.json({ error: 'Token exchange failed', details: data }, { status: 401 });
     }
   } catch (error) {
-    return NextResponse.json({ error: 'Error de red' }, { status: 500 });
+    return NextResponse.json({ error: 'Server Error' }, { status: 500 });
   }
 }
