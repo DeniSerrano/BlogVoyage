@@ -9,7 +9,7 @@ export default function Home() {
 
   const handleImport = async () => {
     setLoading(true);
-    setStatus({ type: 'info', message: 'Iniciando importación...' });
+    setStatus({ type: 'primary', message: 'Iniciando importación...' });
     
     const params = new URLSearchParams(window.location.search);
     const storeId = params.get('store_id');
@@ -23,56 +23,48 @@ export default function Home() {
       if (res.ok) {
         setStatus({ type: 'success', message: '¡Importación finalizada!' });
       } else {
-        setStatus({ type: 'error', message: 'Error al importar productos.' });
+        setStatus({ type: 'danger', message: 'Error al importar.' });
       }
     } catch (e) {
-      setStatus({ type: 'error', message: 'Error de red.' });
+      setStatus({ type: 'danger', message: 'Error de red.' });
     }
     setLoading(false);
   };
 
   return (
-    <div style={{ padding: '32px', maxWidth: '800px' }}>
-      <div style={{ marginBottom: '24px' }}>
-        {/* Usamos "featured" que es lo que tu error dijo que sí acepta */}
-        <Text appearance="featured">Migrador de Productos WordPress</Text>
+    <div style={{ padding: '30px', maxWidth: '700px' }}>
+      <div style={{ marginBottom: '20px' }}>
+        {/* Usamos "primary" que Vercel confirmó que sí acepta en tu captura */}
+        <Text appearance="primary">Migrador de Productos WordPress</Text>
       </div>
       
       <Card>
-        <div style={{ padding: '24px' }}>
-          <div style={{ marginBottom: '16px' }}>
-            <Text appearance="base">Configura la URL de tu sitio WordPress para sincronizar con tu Tiendanube.</Text>
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '15px' }}>
+            <Text appearance="default">Ingresá la URL de tu WordPress:</Text>
           </div>
           
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <Input 
-              placeholder="https://tu-sitio-wp.com" 
-              value={wpUrl}
-              onChange={(e) => setWpUrl(e.target.value)}
-            />
-            
-            <div style={{ width: 'fit-content' }}>
-              <Button 
-                appearance="primary"
-                loading={loading}
-                onClick={handleImport}
-              >
-                Comenzar Importación
-              </Button>
-            </div>
+          <Input 
+            placeholder="https://tu-sitio-wp.com" 
+            value={wpUrl}
+            onChange={(e) => setWpUrl(e.target.value)}
+          />
+          
+          <div style={{ marginTop: '20px' }}>
+            <Button 
+              appearance="primary"
+              loading={loading}
+              onClick={handleImport}
+            >
+              Comenzar Importación
+            </Button>
           </div>
         </div>
       </Card>
 
       {status.message && (
-        <div style={{ 
-          marginTop: '20px', 
-          padding: '16px', 
-          border: '1px solid #ddd', 
-          borderRadius: '4px',
-          backgroundColor: status.type === 'error' ? '#fff1f0' : '#f6ffed'
-        }}>
-          <Text appearance="base">{status.message}</Text>
+        <div style={{ marginTop: '20px', padding: '15px', border: '1px solid #ccc' }}>
+          <Text appearance={status.type as any}>{status.message}</Text>
         </div>
       )}
     </div>
