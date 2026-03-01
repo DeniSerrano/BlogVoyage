@@ -46,6 +46,11 @@ export async function POST(request: Request) {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '');
 
+      // Truncar título a 50 caracteres (límite de Tiendanube para menu translation)
+      const title = post.title.rendered.length > 50
+        ? post.title.rendered.substring(0, 47) + '...'
+        : post.title.rendered;
+
       const tnRes = await fetch(
         `https://api.tiendanube.com/2025-03/${storeId}/pages`,
         {
@@ -60,7 +65,7 @@ export async function POST(request: Request) {
               publish: true,
               i18n: {
                 es_AR: {
-                  title: post.title.rendered,
+                  title: title,
                   content: post.content.rendered,
                   seo_handle: slug,
                   seo_title: post.title.rendered,
