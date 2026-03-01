@@ -59,8 +59,8 @@ export async function POST(request: Request) {
             page: {
               i18n: {
                 es: {
+                  title: post.title.rendered,
                   handle: slug,
-                  name: post.title.rendered,
                   content: post.content.rendered,
                 },
               },
