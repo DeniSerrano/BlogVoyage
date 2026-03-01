@@ -1,8 +1,24 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  // Sin transpilePackages ni cosas raras por ahora
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors https://*.mitiendanube.com https://*.mynuvemshop.com https://*.lojanuvem.com.br https://admin.tiendanube.com https://admin.nuvemshop.com.br;",
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'ALLOW-FROM https://admin.tiendanube.com',
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
