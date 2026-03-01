@@ -4,9 +4,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
 
-  if (!code) return NextResponse.json({ error: 'No code provided' }, { status: 400 });
+  if (!code) return NextResponse.json({ error: 'No code' }, { status: 400 });
 
-  // Obtenemos las variables y les quitamos espacios invisibles por seguridad
   const clientId = process.env.TIENDANUBE_CLIENT_ID?.trim();
   const clientSecret = process.env.TIENDANUBE_CLIENT_SECRET?.trim();
 
@@ -25,16 +24,16 @@ export async function GET(request: Request) {
     const data = await response.json();
 
     if (data.access_token) {
-      // ÉXITO: El token es válido, volvemos a la pantalla principal de la app
-      return NextResponse.redirect(new URL('/', request.url));
+      // 1. Obtenemos el ID de la tienda que nos envió Tiendanube
+      const user_id = data.user_id; 
+      
+      // 2. Redirigimos directamente al Administrador de Tiendanube, a la sección de tu App
+      // Esto hace que la pantalla negra desaparezca y vuelvas al panel azul
+      return NextResponse.redirect(`https://admin.tiendanube.com/apps/${clientId}/install?shop=${user_id}`);
     } else {
-      // ERROR: Tiendanube rechazó las credenciales
-      return NextResponse.json({ 
-        error: 'Credenciales inválidas en Vercel', 
-        detalles: data 
-      }, { status: 401 });
+      return NextResponse.json({ error: 'Credenciales inválidas', detalles: data }, { status: 401 });
     }
   } catch (error) {
-    return NextResponse.json({ error: 'Error de conexión con Tiendanube' }, { status: 500 });
+    return NextResponse.json({ error: 'Error de red' }, { status: 500 });
   }
 }
