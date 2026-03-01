@@ -13,8 +13,6 @@ import {
   Checkbox,
   Spinner,
   Tag,
-  Icon,
-  Link,
 } from '@nimbus-ds/components';
 
 // ─── Types ───
@@ -46,6 +44,22 @@ interface HistoryEntry {
 
 type Step = 'url' | 'preview' | 'importing' | 'done';
 type Tab = 'import' | 'history';
+
+// Safe JSON fetch helper
+async function safeFetch(url: string, options?: RequestInit) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Respuesta inválida del servidor: ${text.substring(0, 200)}`);
+  }
+  if (!res.ok && !data.success) {
+    throw new Error(data.error || `Error HTTP ${res.status}`);
+  }
+  return data;
+}
 
 export default function Page() {
   // Nexo state
@@ -87,7 +101,7 @@ export default function Page() {
     initNexo();
   }, []);
 
-  // ─── Get store_id from URL or cookie ───
+  // ─── Get store_id from URL ───
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -101,8 +115,7 @@ export default function Page() {
     if (!storeId) return;
     setLoadingHistory(true);
     try {
-      const res = await fetch(`/api/history?store_id=${storeId}`);
-      const data = await res.json();
+      const data = await safeFetch(`/api/history?store_id=${storeId}`);
       if (data.success) setHistory(data.history || []);
     } catch {}
     setLoadingHistory(false);
@@ -117,12 +130,12 @@ export default function Page() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/preview', {
+      const data = await safeFetch('/api/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wpUrl: url }),
       });
-      const data = await res.json();
+
       if (!data.success) throw new Error(data.error);
 
       setPosts(data.posts);
@@ -130,14 +143,16 @@ export default function Page() {
 
       // Check duplicates
       if (storeId) {
-        const slugs = data.posts.map((p: WPPost) => p.slug);
-        const dupRes = await fetch('/api/check-duplicates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storeId, slugs }),
-        });
-        const dupData = await dupRes.json();
-        if (dupData.success) setDuplicates(dupData.duplicates);
+        try {
+          const dupData = await safeFetch('/api/check-duplicates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storeId, slugs: data.posts.map((p: WPPost) => p.slug) }),
+          });
+          if (dupData.success) setDuplicates(dupData.duplicates);
+        } catch {
+          // Silently ignore duplicate check errors
+        }
       }
 
       setStep('preview');
@@ -154,7 +169,7 @@ export default function Page() {
     setResults([]);
 
     try {
-      const res = await fetch('/api/import', {
+      const data = await safeFetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +179,6 @@ export default function Page() {
           overwrite,
         }),
       });
-      const data = await res.json();
 
       if (data.success) {
         setResults(data.processed);
@@ -238,9 +252,7 @@ export default function Page() {
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center">
         <Title as="h1">Migrador de Blogs</Title>
-        {storeId && (
-          <Tag appearance="primary">Tienda #{storeId}</Tag>
-        )}
+        {storeId && <Tag appearance="primary">Tienda #{storeId}</Tag>}
       </Box>
 
       {/* Tabs */}
@@ -299,13 +311,11 @@ export default function Page() {
           {/* STEP: PREVIEW */}
           {step === 'preview' && (
             <Box display="flex" flexDirection="column" gap="4">
-              {/* Duplicate warning */}
               {hasDuplicates && (
                 <Alert appearance="warning" title="Se encontraron páginas duplicadas">
                   <Box display="flex" flexDirection="column" gap="2">
                     <Text>
                       Algunos posts ya existen como páginas en tu tienda.
-                      ¿Querés sobreescribirlos?
                     </Text>
                     <Checkbox
                       name="overwrite"
@@ -320,7 +330,6 @@ export default function Page() {
               <Card>
                 <Card.Body>
                   <Box display="flex" flexDirection="column" gap="4">
-                    {/* Header */}
                     <Box display="flex" justifyContent="space-between" alignItems="center">
                       <Box>
                         <Title as="h2">{posts.length} posts encontrados</Title>
@@ -335,7 +344,6 @@ export default function Page() {
                       </Button>
                     </Box>
 
-                    {/* Post list */}
                     {posts.map((post) => {
                       const isDup = duplicates[post.slug];
                       return (
@@ -345,7 +353,11 @@ export default function Page() {
                           alignItems="flex-start"
                           gap="2"
                           padding="2"
-                          borderColor={selectedIds.has(post.wpId) ? 'primary-interactive' : 'neutral-surfaceHighlight'}
+                          borderColor={
+                            selectedIds.has(post.wpId)
+                              ? 'primary-interactive'
+                              : 'neutral-surfaceHighlight'
+                          }
                           borderStyle="solid"
                           borderWidth="1"
                           borderRadius="2"
@@ -359,9 +371,7 @@ export default function Page() {
                           <Box display="flex" flexDirection="column" gap="1" flex="1 1 auto">
                             <Box display="flex" alignItems="center" gap="2">
                               <Text fontWeight="bold">{post.title}</Text>
-                              {isDup && (
-                                <Tag appearance="warning">Duplicado</Tag>
-                              )}
+                              {isDup && <Tag appearance="warning">Duplicado</Tag>}
                             </Box>
                             <Text fontSize="caption" color="neutral-textDisabled">
                               {post.excerpt || 'Sin descripción'}
@@ -374,7 +384,6 @@ export default function Page() {
                       );
                     })}
 
-                    {/* Actions */}
                     <Box display="flex" gap="2">
                       <Button appearance="neutral" onClick={reset}>
                         Volver
@@ -409,7 +418,6 @@ export default function Page() {
                   <Text color="neutral-textDisabled">
                     Creando páginas en tu tienda de Tiendanube
                   </Text>
-                  {/* Progress bar */}
                   <Box width="100%">
                     <Box
                       backgroundColor="neutral-surfaceHighlight"
@@ -454,8 +462,6 @@ export default function Page() {
                           {failCount > 0 && ` (${failCount} fallaron)`}
                         </Text>
                       </Alert>
-
-                      {/* Results list */}
                       {results.map((r, i) => (
                         <Box
                           key={i}
@@ -470,14 +476,11 @@ export default function Page() {
                         >
                           <Text>{r.success ? '✅' : '❌'}</Text>
                           <Text flex="1 1 auto">{r.title}</Text>
-                          {r.overwritten && (
-                            <Tag appearance="primary">Actualizado</Tag>
-                          )}
+                          {r.overwritten && <Tag appearance="primary">Actualizado</Tag>}
                         </Box>
                       ))}
                     </>
                   )}
-
                   <Button appearance="primary" onClick={reset}>
                     Nueva importación
                   </Button>
