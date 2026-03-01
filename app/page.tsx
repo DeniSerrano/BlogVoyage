@@ -1,86 +1,71 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { 
-  NimbusShell,
-  Card, 
-  Text, 
-  Input, 
-  Button, 
-  Stack, 
-  PageTitle,
-  Alert
-} from "@tiendanube/components";
+import React, { useState } from 'react';
 
 export default function Page() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [result, setResult] = useState<any>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) return null;
+  const [status, setStatus] = useState('');
 
   const handleImport = async () => {
-    if (!url) return alert('Por favor, ingresa una URL de WordPress');
+    if (!url) return alert('Ingresa una URL');
     setLoading(true);
-    setResult(null);
+    setStatus('Procesando...');
     
     try {
-      const response = await fetch('/api/import', {
+      const res = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wpUrl: url }),
       });
-      
-      const data = await response.json();
+      const data = await res.json();
       if (data.success) {
-        setResult({ type: 'success', message: `¡Éxito! Se procesaron ${data.processed.length} entradas.` });
+        setStatus(`¡Éxito! Se importaron ${data.processed.length} entradas.`);
       } else {
-        throw new Error(data.error);
+        setStatus('Error: ' + data.error);
       }
-    } catch (err: any) {
-      setResult({ type: 'danger', message: 'Error: ' + err.message });
+    } catch (err) {
+      setStatus('Error de conexión');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <NimbusShell>
-      <Stack spacing="loose">
-        <PageTitle
-          title="Importador de Contenido"
-          subtitle="Carga posts de WordPress directamente a tus páginas de Tiendanube"
+    <div style={{ padding: '40px', fontFamily: 'sans-serif', maxWidth: '600px' }}>
+      <h1>Importador de WordPress</h1>
+      <p>Carga tus posts directamente a Tiendanube.</p>
+      
+      <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <label>URL de WordPress:</label>
+        <input 
+          type="text" 
+          value={url} 
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://tu-blog.com"
+          style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
         />
-        
-        {result && (
-          <Alert appearance={result.type} title={result.message} />
-        )}
+        <button 
+          onClick={handleImport} 
+          disabled={loading}
+          style={{ 
+            padding: '10px', 
+            background: loading ? '#ccc' : '#007bff', 
+            color: 'white', 
+            border: 'none', 
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          {loading ? 'Importando...' : 'Comenzar Importación'}
+        </button>
+      </div>
 
-        <Card>
-          <Card.Section>
-            <Stack spacing="tight">
-              <Text>URL de tu WordPress (ej: https://misitio.com)</Text>
-              <Input
-                placeholder="https://tu-blog-wp.com"
-                value={url}
-                onChange={(e: any) => setUrl(e.target.value)}
-              />
-              <Button 
-                appearance="primary" 
-                loading={loading}
-                onClick={handleImport}
-              >
-                Sincronizar ahora
-              </Button>
-            </Stack>
-          </Card.Section>
-        </Card>
-      </Stack>
-    </NimbusShell>
+      {status && (
+        <div style={{ marginTop: '20px', padding: '15px', background: '#f4f4f4', borderRadius: '4px' }}>
+          {status}
+        </div>
+      )}
+    </div>
   );
 }
