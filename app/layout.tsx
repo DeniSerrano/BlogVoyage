@@ -1,5 +1,8 @@
+'use client';
+
 import { NimbusShell } from "@tiendanube/components";
 import "@tiendanube/components/dist/index.css";
+import "./globals.css";
 
 export default function RootLayout({
   children,
@@ -9,7 +12,6 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body>
-        {/* Este Shell es el que aplica el diseño oficial a todo lo que esté adentro */}
         <NimbusShell>
           {children}
         </NimbusShell>
