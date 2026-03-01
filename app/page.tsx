@@ -1,7 +1,7 @@
 'use client';
 import React, { useState } from 'react';
-// Importamos solo lo que sabemos que funciona seguro
-import { Card, Text, Input, Button, Stack, Banner } from '@tiendanube/components';
+// Importamos solo lo más básico y seguro de Nimbus
+import { Card, Text, Input, Button } from '@tiendanube/components';
 
 export default function Home() {
   const [wpUrl, setWpUrl] = useState('');
@@ -35,42 +35,48 @@ export default function Home() {
   };
 
   return (
-    <div style={{ padding: '40px', maxWidth: '800px', margin: '0 auto', fontFamily: 'Nunito Sans, sans-serif' }}>
-      <Stack spacing="5">
+    <div style={{ padding: '40px', maxWidth: '700px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <div style={{ marginBottom: '32px' }}>
         <Text variant="headingLg">Migrador de Productos WordPress</Text>
-        
-        <Card>
-          <Card.Section title="Configuración de origen">
-            <Stack spacing="4">
-              <Text>Ingresá la URL de tu sitio WordPress (ej: https://tu-sitio.com) para comenzar la sincronización.</Text>
-              <Input 
-                label="URL del sitio origen"
-                placeholder="https://tu-tienda-wp.com" 
-                value={wpUrl}
-                onChange={(e) => setWpUrl(e.target.value)}
-              />
-              <div style={{ marginTop: '15px' }}>
-                <Button 
-                  variant="primary" 
-                  loading={loading}
-                  onClick={handleImport}
-                >
-                  Comenzar Importación
-                </Button>
-              </div>
-            </Stack>
-          </Card.Section>
-        </Card>
-
-        {status.message && (
-          <div style={{ marginTop: '20px' }}>
-            <Banner 
-              title={status.message} 
-              type={status.type as any}
+      </div>
+      
+      <Card>
+        <Card.Section>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <Text>Ingresá la URL de tu sitio WordPress para comenzar la sincronización.</Text>
+            
+            <Input 
+              label="URL del sitio origen"
+              placeholder="https://tu-tienda-wp.com" 
+              value={wpUrl}
+              onChange={(e) => setWpUrl(e.target.value)}
             />
+            
+            <div style={{ marginTop: '10px' }}>
+              <Button 
+                variant="primary" 
+                loading={loading}
+                onClick={handleImport}
+              >
+                Comenzar Importación
+              </Button>
+            </div>
           </div>
-        )}
-      </Stack>
+        </Card.Section>
+      </Card>
+
+      {status.message && (
+        <div style={{ 
+          marginTop: '20px', 
+          padding: '16px', 
+          borderRadius: '8px',
+          backgroundColor: status.type === 'error' ? '#fff1f0' : '#f6ffed',
+          border: `1px solid ${status.type === 'error' ? '#ffa39e' : '#b7eb8f'}`,
+          color: 'rgba(0, 0, 0, 0.85)'
+        }}>
+          <Text>{status.message}</Text>
+        </div>
+      )}
     </div>
   );
 }
