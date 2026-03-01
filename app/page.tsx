@@ -44,12 +44,12 @@ export default function Home() {
           </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            {/* Agregamos el "name" que Vercel exigió en el último error */}
             <Input 
               name="wordpress_url"
               placeholder="https://tu-sitio-wp.com" 
               value={wpUrl}
-              onChange={(e) => setWpUrl(e.target.value)}
+              // En esta versión de Nimbus, 'e' es un objeto con { name, value }
+              onChange={(e: any) => setWpUrl(e.value || e.target?.value || e)}
             />
             
             <div style={{ marginTop: '10px' }}>
