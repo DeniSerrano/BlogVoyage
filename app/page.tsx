@@ -11,14 +11,11 @@ export default function Home() {
     setLoading(true);
     setStatus({ type: 'primary', message: 'Iniciando importación...' });
     
-    const params = new URLSearchParams(window.location.search);
-    const storeId = params.get('store_id');
-
     try {
       const res = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wpUrl, storeId }),
+        body: JSON.stringify({ wpUrl }),
       });
       if (res.ok) {
         setStatus({ type: 'success', message: '¡Importación finalizada!' });
@@ -26,7 +23,7 @@ export default function Home() {
         setStatus({ type: 'danger', message: 'Error al importar.' });
       }
     } catch (e) {
-      setStatus({ type: 'danger', message: 'Error de red.' });
+      setStatus({ type: 'danger', message: 'Error de conexión.' });
     }
     setLoading(false);
   };
@@ -37,10 +34,10 @@ export default function Home() {
         <Text appearance="primary">Migrador de Productos WordPress</Text>
       </div>
       
-      <Card title="Configuración de Importación">
+      <Card title="Configuración">
         <div style={{ padding: '20px' }}>
           <div style={{ marginBottom: '15px' }}>
-            <Text appearance="default">Ingresá la URL de tu sitio WordPress:</Text>
+            <Text appearance="default">Ingresá la URL de tu WordPress:</Text>
           </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
