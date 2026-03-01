@@ -57,14 +57,16 @@ export async function POST(request: Request) {
           },
           body: JSON.stringify({
             page: {
+              publish: true,
               i18n: {
-                es: {
+                es_AR: {
                   title: post.title.rendered,
-                  handle: slug,
                   content: post.content.rendered,
+                  seo_handle: slug,
+                  seo_title: post.title.rendered,
+                  seo_description: '',
                 },
               },
-              publish: true,
             },
           }),
         }
