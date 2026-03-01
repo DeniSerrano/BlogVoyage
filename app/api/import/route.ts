@@ -47,7 +47,7 @@ export async function POST(request: Request) {
         .replace(/(^-|-$)/g, '');
 
       const tnRes = await fetch(
-        `https://api.tiendanube.com/v1/${storeId}/pages`,
+        `https://api.tiendanube.com/2025-03/${storeId}/pages`,
         {
           method: 'POST',
           headers: {
