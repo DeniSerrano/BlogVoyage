@@ -55,7 +55,7 @@ async function safeFetch(url: string, options?: RequestInit) {
   } catch {
     throw new Error(`Respuesta inválida del servidor: ${text.substring(0, 200)}`);
   }
-  if (!res.ok && !data.success) {
+  if (!res.ok && data && !data.success) {
     throw new Error(data.error || `Error HTTP ${res.status}`);
   }
   return data;
@@ -68,6 +68,7 @@ export default function Page() {
 
   // App state
   const [storeId, setStoreId] = useState<string | null>(null);
+  const [storeName, setStoreName] = useState<string>('');
   const [activeTab, setActiveTab] = useState<Tab>('import');
   const [url, setUrl] = useState('');
   const [step, setStep] = useState<Step>('url');
@@ -82,32 +83,37 @@ export default function Page() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // ─── Init Nexo ───
+  // ─── Init Nexo + get store info ───
   useEffect(() => {
     async function initNexo() {
       try {
         const { create, connect, iAmReady } = await import('@tiendanube/nexo');
+        const { getStoreInfo } = await import('@tiendanube/nexo/helpers');
+
         const nexo = create({
           clientId: process.env.NEXT_PUBLIC_TIENDANUBE_CLIENT_ID || '0',
           log: true,
         });
+
         await connect(nexo);
         setNexoReady(true);
         iAmReady(nexo);
+
+        // Get store info from Nexo
+        try {
+          const storeInfo = await getStoreInfo(nexo);
+          if (storeInfo?.id) {
+            setStoreId(storeInfo.id);
+            setStoreName(storeInfo.name || '');
+          }
+        } catch (e) {
+          console.warn('No se pudo obtener store info de Nexo:', e);
+        }
       } catch (err: any) {
         setNexoError(err?.message || 'Error conectando con Nexo');
       }
     }
     initNexo();
-  }, []);
-
-  // ─── Get store_id from URL ───
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sid = params.get('store_id');
-      if (sid) setStoreId(sid);
-    }
   }, []);
 
   // ─── Load history ───
@@ -164,9 +170,14 @@ export default function Page() {
 
   // ─── Import ───
   const handleImport = async () => {
+    if (!storeId) {
+      setError('No se pudo identificar la tienda. Recargá la app.');
+      return;
+    }
     setStep('importing');
     setProgress(0);
     setResults([]);
+    setError('');
 
     try {
       const data = await safeFetch('/api/import', {
@@ -180,7 +191,7 @@ export default function Page() {
         }),
       });
 
-      if (data.success) {
+      if (data.success && Array.isArray(data.processed)) {
         setResults(data.processed);
         const total = data.processed.length;
         for (let i = 1; i <= total; i++) {
@@ -188,7 +199,7 @@ export default function Page() {
           await new Promise((r) => setTimeout(r, 80));
         }
       } else {
-        setError(data.error);
+        setError(data.error || 'Error desconocido en la importación');
       }
       setStep('done');
     } catch (err: any) {
@@ -252,7 +263,11 @@ export default function Page() {
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center">
         <Title as="h1">Migrador de Blogs</Title>
-        {storeId && <Tag appearance="primary">Tienda #{storeId}</Tag>}
+        {storeId ? (
+          <Tag appearance="primary">{storeName || `Tienda #${storeId}`}</Tag>
+        ) : (
+          <Tag appearance="warning">Sin tienda conectada</Tag>
+        )}
       </Box>
 
       {/* Tabs */}
@@ -270,6 +285,16 @@ export default function Page() {
           Historial
         </Button>
       </Box>
+
+      {/* No store warning */}
+      {!storeId && (
+        <Alert appearance="warning" title="Tienda no identificada">
+          <Text>
+            No se pudo obtener la información de la tienda. Verificá que la app esté
+            correctamente instalada y recargá la página.
+          </Text>
+        </Alert>
+      )}
 
       {/* ═══ IMPORT TAB ═══ */}
       {activeTab === 'import' && (
@@ -321,7 +346,9 @@ export default function Page() {
                       name="overwrite"
                       label={`Sobreescribir páginas existentes (${selectedDuplicates} duplicados seleccionados)`}
                       checked={overwrite}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOverwrite(e.target.checked)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setOverwrite(e.target.checked)
+                      }
                     />
                   </Box>
                 </Alert>
@@ -391,7 +418,7 @@ export default function Page() {
                       <Button
                         appearance="primary"
                         onClick={handleImport}
-                        disabled={selectedIds.size === 0}
+                        disabled={selectedIds.size === 0 || !storeId}
                       >
                         Importar {selectedIds.size} post{selectedIds.size !== 1 ? 's' : ''}
                       </Button>
