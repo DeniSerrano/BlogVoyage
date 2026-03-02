@@ -144,14 +144,20 @@ export async function POST(request: Request) {
           isOverwrite = true;
         }
 
+        // Extract Yoast SEO data if available
+        const yoast = post.yoast_head_json;
+        const seoTitle = yoast?.title || yoast?.og_title || decodedTitle;
+        const seoDescription = yoast?.description || yoast?.og_description || decodedExcerpt.substring(0, 160);
+        const seoHandle = yoast?.og_url?.split('/').filter(Boolean).pop() || slug;
+
         // Blog API uses multipart/form-data
         const metadata = JSON.stringify({
           language: 'es',
           title: decodedTitle,
-          handle: slug,
+          handle: seoHandle,
           summary: decodedExcerpt.substring(0, 300),
-          seo_title: decodedTitle,
-          seo_description: decodedExcerpt.substring(0, 160),
+          seo_title: seoTitle,
+          seo_description: seoDescription,
         });
 
         const formData = new FormData();
