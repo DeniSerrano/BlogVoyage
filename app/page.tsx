@@ -298,11 +298,6 @@ export default function Page() {
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center">
         <Title as="h1">Migrador de Blogs</Title>
-        {storeId ? (
-          <Tag appearance="primary">{storeName || `Tienda #${storeId}`}</Tag>
-        ) : (
-          <Tag appearance="warning">Identificando tienda...</Tag>
-        )}
       </Box>
 
       {/* Tabs */}
