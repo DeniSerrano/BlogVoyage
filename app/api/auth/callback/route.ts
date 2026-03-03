@@ -40,11 +40,27 @@ export async function GET(request: Request) {
       );
     }
 
-    // Guardar en Supabase
+    // Obtener info de la tienda para el redirect correcto
+    const storeRes = await fetch(
+      `https://api.tiendanube.com/v1/${data.user_id}/store`,
+      {
+        headers: {
+          'Authentication': `bearer ${data.access_token}`,
+          'User-Agent': 'WP-Importer (admin@example.com)',
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const storeData = await storeRes.json();
+
+    // Guardar en Supabase (con info extra de la tienda)
     const { error: dbError } = await supabase.from('tiendas').upsert(
       {
         store_id: String(data.user_id),
         access_token: data.access_token,
+        store_name: storeData.name?.es || storeData.name?.pt || storeData.name?.en || '',
+        store_url: storeData.url_with_protocol || '',
+        store_email: storeData.email || '',
       },
       { onConflict: 'store_id' }
     );
@@ -56,9 +72,13 @@ export async function GET(request: Request) {
 
     console.log(`Tienda ${data.user_id} autenticada correctamente`);
 
-    // Redirigir al home con el store_id
-    const baseUrl = new URL(request.url).origin;
-    return NextResponse.redirect(`${baseUrl}/?store_id=${data.user_id}`);
+    // CRITICAL: Redirigir al admin de la tienda, NO a la URL de Vercel
+    // Tiendanube usa dominios por tienda: https://{store}.mitiendanube.com/admin/apps/{app_id}
+    const originalDomain = storeData.original_domain || storeData.main_domain;
+    const appId = process.env.TIENDANUBE_CLIENT_ID;
+    const redirectUrl = `https://${originalDomain}/admin/apps/${appId}/`;
+
+    return NextResponse.redirect(redirectUrl);
   } catch (error: any) {
     console.error('Error en callback:', error.message);
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });
