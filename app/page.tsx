@@ -17,7 +17,17 @@ import {
   Tabs,
   Sidebar,
   Stepper,
+  Icon,
 } from '@nimbus-ds/components';
+import { InitialScreen } from '@nimbus-ds/patterns';
+import {
+  FileAltIcon,
+  RocketIcon,
+  MagicWandIcon,
+  GlobeIcon,
+  CheckCircleIcon,
+  EditIcon,
+} from '@nimbus-ds/icons';
 
 // ─── Types ───
 interface WPPost {
@@ -48,34 +58,26 @@ interface HistoryEntry {
 }
 
 type Step = 0 | 1 | 2;
+type TabIndex = 0 | 1 | 2;
 
 async function safeFetch(url: string, options?: RequestInit) {
   const res = await fetch(url, options);
   const text = await res.text();
   let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
+  try { data = JSON.parse(text); } catch {
     throw new Error(`Respuesta inválida del servidor: ${text.substring(0, 200)}`);
   }
-  if (!res.ok && data && !data.success) {
-    throw new Error(data.error || `Error HTTP ${res.status}`);
-  }
+  if (!res.ok && data && !data.success) throw new Error(data.error || `Error HTTP ${res.status}`);
   return data;
 }
 
 async function getNexoStoreInfo(nexo: any): Promise<{ id: string; name: string } | null> {
   return new Promise((resolve) => {
     try {
-      const unsub = nexo.suscribe('app/store/info', (data: any) => {
-        unsub?.();
-        resolve(data);
-      });
+      const unsub = nexo.suscribe('app/store/info', (data: any) => { unsub?.(); resolve(data); });
       nexo.dispatch('app/store/info');
       setTimeout(() => { unsub?.(); resolve(null); }, 3000);
-    } catch {
-      resolve(null);
-    }
+    } catch { resolve(null); }
   });
 }
 
@@ -86,12 +88,13 @@ export default function Page() {
   const [nexoError, setNexoError] = useState('');
   const [storeId, setStoreId] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTab, setActiveTab] = useState<TabIndex>(0);
   const [activeStep, setActiveStep] = useState<Step>(0);
   const [selectedStep, setSelectedStep] = useState<Step>(0);
 
   const [url, setUrl] = useState('');
   const [savedWpUrl, setSavedWpUrl] = useState('');
+  const [urlSaving, setUrlSaving] = useState(false);
   const [urlSaved, setUrlSaved] = useState(false);
 
   const [posts, setPosts] = useState<WPPost[]>([]);
@@ -139,7 +142,7 @@ export default function Page() {
     initNexo();
   }, []);
 
-  // ─── Cargar URL de WP guardada ───
+  // ─── Cargar URL guardada ───
   const loadWpUrl = useCallback(async () => {
     if (!storeId) return;
     try {
@@ -170,6 +173,22 @@ export default function Page() {
     if (activeTab === 1 && storeId) loadHistory();
   }, [activeTab, storeId, loadHistory]);
 
+  // ─── Guardar URL ───
+  const handleSaveUrl = async () => {
+    if (!storeId || !url) return;
+    setUrlSaving(true);
+    try {
+      await safeFetch('/api/wp-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeId, wpUrl: url }),
+      });
+      setSavedWpUrl(url);
+      setUrlSaved(true);
+    } catch { }
+    setUrlSaving(false);
+  };
+
   // ─── Preview ───
   const handlePreview = async () => {
     setLoading(true);
@@ -178,7 +197,7 @@ export default function Page() {
       const data = await safeFetch('/api/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wpUrl: url }),
+        body: JSON.stringify({ wpUrl: savedWpUrl || url }),
       });
       if (!data.success) throw new Error(data.error);
       setPosts(data.posts);
@@ -195,6 +214,7 @@ export default function Page() {
       }
       setActiveStep(1);
       setSelectedStep(1);
+      setActiveTab(0);
     } catch (err: any) {
       setError(err.message || 'Error conectando con WordPress');
     }
@@ -210,7 +230,7 @@ export default function Page() {
       const data = await safeFetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wpUrl: url, storeId, selectedIds: Array.from(selectedIds), overwrite }),
+        body: JSON.stringify({ wpUrl: savedWpUrl || url, storeId, selectedIds: Array.from(selectedIds), overwrite }),
       });
       if (data.success && Array.isArray(data.processed)) {
         setResults(data.processed);
@@ -249,125 +269,216 @@ export default function Page() {
     setOverwrite(false);
     setResults([]);
     setError('');
-    setUrl(savedWpUrl);
-  };
-
-  const openPreview = (post: WPPost) => {
-    setPreviewPost(post);
-    setSidebarOpen(true);
   };
 
   const hasDuplicates = Object.values(duplicates).some(Boolean);
   const selectedDuplicates = posts.filter((p) => selectedIds.has(p.wpId) && duplicates[p.slug]).length;
   const successCount = results.filter((r) => r.success).length;
   const failCount = results.filter((r) => !r.success).length;
+  const isBlogConfigured = !!savedWpUrl;
 
   // ─── Nexo loading / error ───
   if (!nexoReady) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
         {nexoError ? (
-          <Alert appearance="danger" title="Error de conexión">
-            <Text>{nexoError}</Text>
-          </Alert>
+          <Alert appearance="danger" title="Error de conexión"><Text>{nexoError}</Text></Alert>
         ) : (
           <Box display="flex" flexDirection="column" alignItems="center" gap="2">
             <Spinner size="large" />
-            <Text color="neutral-textDisabled">Conectando con el admin...</Text>
+            <Text color="neutral-textDisabled">Conectando...</Text>
           </Box>
         )}
       </Box>
     );
   }
 
+  // ─── Pantalla de bienvenida (sin blog configurado, primera vez) ───
+  const WelcomeScreen = (
+    <InitialScreen>
+      <InitialScreen.Hero
+        subtitle="BlogVoyage"
+        title="Traé tu blog de WordPress a Tiendanube"
+        bullets={
+          <>
+            <InitialScreen.Bullet
+              icon={<FileAltIcon />}
+              text="Importá tus posts con un clic, con título, contenido, imágenes y SEO"
+            />
+            <InitialScreen.Bullet
+              icon={<MagicWandIcon />}
+              text="Seleccioná qué posts querés traer y cuáles dejar"
+            />
+            <InitialScreen.Bullet
+              icon={<RocketIcon />}
+              text="Tu contenido en Tiendanube en minutos, sin perder nada"
+            />
+          </>
+        }
+        actions={
+          <Button
+            appearance="primary"
+            onClick={() => setActiveTab(2 as TabIndex)}
+          >
+            Conectar mi blog
+          </Button>
+        }
+      />
+    </InitialScreen>
+  );
+
+  // ─── Tab Mi Blog ───
+  const MyBlogTab = (
+    <Box paddingTop="4" display="flex" flexDirection="column" gap="4">
+      {isBlogConfigured ? (
+        <>
+          <Alert appearance="success" title="Blog conectado">
+            <Text>Tu blog de WordPress está configurado y listo para importar.</Text>
+          </Alert>
+          <Card>
+            <Card.Header title="Tu blog de WordPress" />
+            <Card.Body>
+              <Box display="flex" flexDirection="column" gap="4">
+                <Box display="flex" alignItems="center" gap="2">
+                  <Icon color="primary-interactive" source={<GlobeIcon />} />
+                  <Text fontWeight="bold">{savedWpUrl}</Text>
+                </Box>
+                <Box display="flex" gap="2">
+                  <Input
+                    label="Cambiar URL"
+                    placeholder="https://tu-blog.com"
+                    value={url}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      setUrl(e.target.value);
+                      setUrlSaved(false);
+                    }}
+                  />
+                </Box>
+                <Box display="flex" gap="2">
+                  <Button
+                    appearance="neutral"
+                    disabled={!url || url === savedWpUrl || urlSaving}
+                    onClick={handleSaveUrl}
+                  >
+                    {urlSaving ? <Spinner size="small" /> : 'Actualizar URL'}
+                  </Button>
+                  <Button
+                    appearance="primary"
+                    onClick={() => {
+                      setActiveTab(0 as TabIndex);
+                      handlePreview();
+                    }}
+                    disabled={loading}
+                  >
+                    {loading ? <Spinner size="small" /> : 'Importar posts →'}
+                  </Button>
+                </Box>
+              </Box>
+            </Card.Body>
+          </Card>
+        </>
+      ) : (
+        <Card>
+          <Card.Header title="Conectar tu blog de WordPress" />
+          <Card.Body>
+            <Box display="flex" flexDirection="column" gap="4">
+              <Text color="neutral-textLow">
+                Ingresá la URL de tu blog de WordPress. La guardamos para que no tengas que volver a escribirla.
+              </Text>
+              <Input
+                label="URL de WordPress"
+                placeholder="https://tu-blog.com"
+                value={url}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  setUrl(e.target.value);
+                  setUrlSaved(false);
+                }}
+              />
+              {urlSaved && (
+                <Alert appearance="success" title="¡Blog conectado!">
+                  <Text>Ya podés importar tus posts desde la tab Importar.</Text>
+                </Alert>
+              )}
+              {error && (
+                <Alert appearance="danger" title="Error"><Text>{error}</Text></Alert>
+              )}
+              <Button
+                appearance="primary"
+                disabled={!url || urlSaving}
+                onClick={handleSaveUrl}
+              >
+                {urlSaving ? <Spinner size="small" /> : 'Guardar y conectar'}
+              </Button>
+            </Box>
+          </Card.Body>
+        </Card>
+      )}
+    </Box>
+  );
+
   return (
     <Box padding="4" display="flex" flexDirection="column" gap="4">
-
-      {/* Header */}
       <Title as="h1">BlogVoyage</Title>
 
-      {/* Tabs principales */}
-      <Tabs preSelectedTab={0} selected={activeTab} onTabSelect={setActiveTab}>
+      <Tabs preSelectedTab={0} selected={activeTab} onTabSelect={(i) => setActiveTab(i as TabIndex)}>
 
         {/* ── Tab Importar ── */}
         <Tabs.Item label="Importar">
 
-          {/* Stepper */}
-          <Box paddingTop="4" paddingBottom="4">
-            <Stepper
-              activeStep={activeStep}
-              selectedStep={selectedStep}
-              onSelectStep={(step) => {
-                if (step < activeStep) setSelectedStep(step as Step);
-              }}
-            >
-              {STEP_LABELS.map((label) => (
-                <Stepper.Item key={label} label={label} />
-              ))}
-            </Stepper>
-          </Box>
+          {/* Sin blog configurado → pantalla de bienvenida */}
+          {!isBlogConfigured && activeStep === 0 && WelcomeScreen}
 
-          {/* ── Paso 0: URL ── */}
-          {selectedStep === 0 && (
-            <Card>
-              <Card.Body>
-                <Box display="flex" flexDirection="column" gap="4">
-                  <Box>
-                    <Title as="h2">¿De dónde importamos?</Title>
-                    <Text color="neutral-textLow">
-                      Ingresá la URL de tu blog de WordPress y buscamos los posts disponibles.
-                    </Text>
-                  </Box>
-                  <Box display="flex" gap="2" alignItems="flex-end">
-                    <Box flex="1 1 auto">
-                      <Input
-                        label="URL de WordPress"
-                        placeholder="https://tu-blog.com"
-                        value={url}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                          setUrl(e.target.value);
-                          setUrlSaved(false);
-                        }}
-                      />
+          {/* Con blog configurado y en paso 0 → card de blog listo */}
+          {isBlogConfigured && activeStep === 0 && (
+            <Box paddingTop="4" display="flex" flexDirection="column" gap="4">
+              <Card>
+                <Card.Body>
+                  <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Box display="flex" alignItems="center" gap="3">
+                      <Icon color="success-textLow" source={<CheckCircleIcon />} />
+                      <Box display="flex" flexDirection="column" gap="1">
+                        <Text fontWeight="bold">Blog conectado</Text>
+                        <Text fontSize="caption" color="neutral-textLow">{savedWpUrl}</Text>
+                      </Box>
                     </Box>
                     <Button
                       appearance="neutral"
-                      disabled={!url || !storeId || url === savedWpUrl}
-                      onClick={async () => {
-                        if (!storeId) return;
-                        await safeFetch('/api/wp-url', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ storeId, wpUrl: url }),
-                        });
-                        setSavedWpUrl(url);
-                        setUrlSaved(true);
-                      }}
+                      size="small"
+                      onClick={() => setActiveTab(2 as TabIndex)}
                     >
-                      {urlSaved ? '✓ Guardada' : 'Guardar URL'}
+                      <Icon source={<EditIcon />} color="currentColor" />
+                      Cambiar
                     </Button>
                   </Box>
-                  {urlSaved && (
-                    <Alert appearance="success" title="URL guardada">
-                      <Text>La próxima vez que abras la app va a estar precargada.</Text>
-                    </Alert>
-                  )}
-                  {error && (
-                    <Alert appearance="danger" title="Error">
-                      <Text>{error}</Text>
-                    </Alert>
-                  )}
-                  <Button appearance="primary" onClick={handlePreview} disabled={loading || !url}>
-                    {loading ? (
-                      <Box display="flex" alignItems="center" gap="2">
-                        <Spinner size="small" />
-                        <Text>Buscando posts...</Text>
-                      </Box>
-                    ) : 'Buscar posts'}
-                  </Button>
-                </Box>
-              </Card.Body>
-            </Card>
+                </Card.Body>
+              </Card>
+              {error && <Alert appearance="danger" title="Error"><Text>{error}</Text></Alert>}
+              <Button appearance="primary" onClick={handlePreview} disabled={loading}>
+                {loading ? (
+                  <Box display="flex" alignItems="center" gap="2">
+                    <Spinner size="small" />
+                    <Text>Buscando posts...</Text>
+                  </Box>
+                ) : 'Buscar posts'}
+              </Button>
+            </Box>
+          )}
+
+          {/* Stepper — solo visible en pasos 1 y 2 */}
+          {activeStep > 0 && (
+            <Box paddingTop="4" paddingBottom="4">
+              <Stepper
+                activeStep={activeStep}
+                selectedStep={selectedStep}
+                onSelectStep={(step) => {
+                  if (step < activeStep) setSelectedStep(step as Step);
+                }}
+              >
+                {STEP_LABELS.map((label) => (
+                  <Stepper.Item key={label} label={label} />
+                ))}
+              </Stepper>
+            </Box>
           )}
 
           {/* ── Paso 1: Selección ── */}
@@ -422,20 +533,9 @@ export default function Page() {
                             label=""
                           />
                           {post.thumbnail ? (
-                            <Thumbnail
-                              src={post.thumbnail}
-                              alt={post.title}
-                              width="64px"
-                              aspectRatio="16/9"
-                            />
+                            <Thumbnail src={post.thumbnail} alt={post.title} width="64px" aspectRatio="16/9" />
                           ) : (
-                            <Box
-                              width="64px"
-                              height="36px"
-                              backgroundColor="neutral-surfaceHighlight"
-                              borderRadius="1"
-                              flexShrink={0}
-                            />
+                            <Box width="64px" height="36px" backgroundColor="neutral-surfaceHighlight" borderRadius="1" flexShrink={0} />
                           )}
                           <Box display="flex" flexDirection="column" gap="1" flex="1 1 auto">
                             <Box display="flex" alignItems="center" gap="2" flexWrap="wrap">
@@ -443,12 +543,10 @@ export default function Page() {
                               {isDup && <Tag appearance="warning">Duplicado</Tag>}
                             </Box>
                             <Text fontSize="caption" color="neutral-textLow">
-                              {new Date(post.date).toLocaleDateString('es-AR', {
-                                day: '2-digit', month: 'short', year: 'numeric'
-                              })}
+                              {new Date(post.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
                             </Text>
                           </Box>
-                          <Button appearance="neutral" size="small" onClick={() => openPreview(post)}>
+                          <Button appearance="neutral" size="small" onClick={() => { setPreviewPost(post); setSidebarOpen(true); }}>
                             Ver
                           </Button>
                         </Box>
@@ -457,15 +555,10 @@ export default function Page() {
 
                     <Box display="flex" gap="2" paddingTop="2">
                       <Button appearance="neutral" onClick={reset}>Volver</Button>
-                      <Button
-                        appearance="primary"
-                        onClick={handleImport}
-                        disabled={selectedIds.size === 0 || !storeId || importing}
-                      >
+                      <Button appearance="primary" onClick={handleImport} disabled={selectedIds.size === 0 || !storeId || importing}>
                         {importing ? (
                           <Box display="flex" alignItems="center" gap="2">
-                            <Spinner size="small" />
-                            <Text>Importando...</Text>
+                            <Spinner size="small" /><Text>Importando...</Text>
                           </Box>
                         ) : `Importar ${selectedIds.size} post${selectedIds.size !== 1 ? 's' : ''}`}
                       </Button>
@@ -482,29 +575,14 @@ export default function Page() {
               <Card.Body>
                 <Box display="flex" flexDirection="column" gap="4">
                   {error ? (
-                    <Alert appearance="danger" title="Error en la importación">
-                      <Text>{error}</Text>
-                    </Alert>
+                    <Alert appearance="danger" title="Error en la importación"><Text>{error}</Text></Alert>
                   ) : (
                     <Alert appearance="success" title="¡Importación completada!">
-                      <Text>
-                        {successCount} de {results.length} posts importados correctamente
-                        {failCount > 0 && ` · ${failCount} fallaron`}
-                      </Text>
+                      <Text>{successCount} de {results.length} posts importados correctamente{failCount > 0 && ` · ${failCount} fallaron`}</Text>
                     </Alert>
                   )}
                   {results.map((r, i) => (
-                    <Box
-                      key={i}
-                      display="flex"
-                      alignItems="center"
-                      gap="2"
-                      padding="2"
-                      borderColor="neutral-surfaceHighlight"
-                      borderStyle="solid"
-                      borderWidth="1"
-                      borderRadius="2"
-                    >
+                    <Box key={i} display="flex" alignItems="center" gap="2" padding="2" borderColor="neutral-surfaceHighlight" borderStyle="solid" borderWidth="1" borderRadius="2">
                       <Text>{r.success ? '✅' : '❌'}</Text>
                       <Text flex="1 1 auto">{r.title}</Text>
                       {r.overwritten && <Tag appearance="primary">Actualizado</Tag>}
@@ -525,33 +603,18 @@ export default function Page() {
                 <Box display="flex" flexDirection="column" gap="4">
                   <Title as="h2">Historial de importaciones</Title>
                   {loadingHistory ? (
-                    <Box display="flex" justifyContent="center" padding="8">
-                      <Spinner size="large" />
-                    </Box>
+                    <Box display="flex" justifyContent="center" padding="8"><Spinner size="large" /></Box>
                   ) : history.length === 0 ? (
                     <Box display="flex" flexDirection="column" alignItems="center" gap="2" padding="8">
                       <Text color="neutral-textDisabled">No hay importaciones anteriores.</Text>
                     </Box>
                   ) : (
                     history.map((entry) => (
-                      <Box
-                        key={entry.id}
-                        padding="3"
-                        borderColor="neutral-surfaceHighlight"
-                        borderStyle="solid"
-                        borderWidth="1"
-                        borderRadius="2"
-                        display="flex"
-                        flexDirection="column"
-                        gap="2"
-                      >
+                      <Box key={entry.id} padding="3" borderColor="neutral-surfaceHighlight" borderStyle="solid" borderWidth="1" borderRadius="2" display="flex" flexDirection="column" gap="2">
                         <Box display="flex" justifyContent="space-between" alignItems="center">
                           <Text fontWeight="bold">{entry.source_url}</Text>
                           <Text fontSize="caption" color="neutral-textLow">
-                            {new Date(entry.created_at).toLocaleDateString('es-AR', {
-                              day: '2-digit', month: 'short', year: 'numeric',
-                              hour: '2-digit', minute: '2-digit'
-                            })}
+                            {new Date(entry.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </Text>
                         </Box>
                         <Box display="flex" gap="2">
@@ -567,30 +630,25 @@ export default function Page() {
             </Card>
           </Box>
         </Tabs.Item>
+
+        {/* ── Tab Mi Blog ── */}
+        <Tabs.Item label="Mi blog">
+          {MyBlogTab}
+        </Tabs.Item>
+
       </Tabs>
 
-      {/* ── Sidebar preview de post ── */}
-      <Sidebar
-        open={sidebarOpen}
-        onRemove={() => setSidebarOpen(false)}
-        maxWidth={{ xs: '100%', md: '480px' }}
-      >
+      {/* ── Sidebar preview ── */}
+      <Sidebar open={sidebarOpen} onRemove={() => setSidebarOpen(false)} maxWidth={{ xs: '100%', md: '480px' }}>
         <Sidebar.Header title={previewPost?.title || ''} />
         <Sidebar.Body padding="base">
           {previewPost && (
             <Box display="flex" flexDirection="column" gap="4">
               {previewPost.thumbnail && (
-                <Thumbnail
-                  src={previewPost.thumbnail}
-                  alt={previewPost.title}
-                  width="100%"
-                  aspectRatio="16/9"
-                />
+                <Thumbnail src={previewPost.thumbnail} alt={previewPost.title} width="100%" aspectRatio="16/9" />
               )}
               <Text fontSize="caption" color="neutral-textLow">
-                {new Date(previewPost.date).toLocaleDateString('es-AR', {
-                  day: '2-digit', month: 'long', year: 'numeric'
-                })}
+                {new Date(previewPost.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}
               </Text>
               <Text>{previewPost.excerpt || 'Sin descripción disponible.'}</Text>
               <Button appearance="neutral" as="a" href={previewPost.link} target="_blank">
@@ -601,24 +659,16 @@ export default function Page() {
         </Sidebar.Body>
         <Sidebar.Footer padding="base">
           <Box display="flex" gap="2">
-            <Button appearance="neutral" onClick={() => setSidebarOpen(false)}>
-              Cerrar
-            </Button>
+            <Button appearance="neutral" onClick={() => setSidebarOpen(false)}>Cerrar</Button>
             <Button
               appearance={previewPost && selectedIds.has(previewPost.wpId) ? 'danger' : 'primary'}
-              onClick={() => {
-                if (previewPost) {
-                  toggleSelect(previewPost.wpId);
-                  setSidebarOpen(false);
-                }
-              }}
+              onClick={() => { if (previewPost) { toggleSelect(previewPost.wpId); setSidebarOpen(false); } }}
             >
               {previewPost && selectedIds.has(previewPost.wpId) ? 'Deseleccionar' : 'Seleccionar'}
             </Button>
           </Box>
         </Sidebar.Footer>
       </Sidebar>
-
     </Box>
   );
 }
