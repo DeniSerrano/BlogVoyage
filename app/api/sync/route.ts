@@ -13,14 +13,13 @@ async function syncStore(tienda: any) {
 
   const cleanUrl = wp_url.replace(/\/$/, '');
 
-  // Buscar posts nuevos desde la última sincronización
   const after = autosync_last_synced_at
     ? new Date(autosync_last_synced_at).toISOString()
     : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   const wpRes = await fetch(
     `${cleanUrl}/wp-json/wp/v2/posts?per_page=20&after=${after}&_embed&orderby=date&order=asc`,
-    { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WP-Importer/1.0)', Accept: 'application/json' } }
+    { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BlogVoyage/1.0)', Accept: 'application/json' } }
   );
 
   if (!wpRes.ok) return { store_id, skipped: true, reason: `WP error ${wpRes.status}` };
@@ -28,13 +27,13 @@ async function syncStore(tienda: any) {
   const wpPosts = await wpRes.json();
   if (!Array.isArray(wpPosts) || wpPosts.length === 0) {
     await supabase.from('tiendas').update({ autosync_last_synced_at: new Date().toISOString() }).eq('store_id', store_id);
-    return { store_id, imported: 0 };
+    return { store_id, imported: 0, failed: 0 };
   }
 
   const blogApiBase = `https://api.tiendanube.com/2025-03/${store_id}/blogs/${blog_id}`;
   const headers: Record<string, string> = {
     Authentication: `bearer ${access_token}`,
-    'User-Agent': 'WP-Importer (den@tiendanube.com)',
+    'User-Agent': 'BlogVoyage (support@blogvoyage.app)',
   };
 
   let imported = 0;
@@ -69,27 +68,17 @@ async function syncStore(tienda: any) {
     if (thumbnail) formData.append('thumbnail', thumbnail);
 
     try {
-      const res = await fetch(`${blogApiBase}/posts`, {
-        method: 'POST',
-        headers,
-        body: formData,
-      });
-      if (res.status === 200 || res.status === 201) {
-        imported++;
-      } else {
-        failed++;
-      }
+      const res = await fetch(`${blogApiBase}/posts`, { method: 'POST', headers, body: formData });
+      res.status === 200 || res.status === 201 ? imported++ : failed++;
     } catch {
       failed++;
     }
   }
 
   await supabase.from('tiendas').update({ autosync_last_synced_at: new Date().toISOString() }).eq('store_id', store_id);
-
   return { store_id, imported, failed };
 }
 
-// POST /api/sync — sincronización manual desde el botón
 export async function POST(request: Request) {
   try {
     const { storeId } = await request.json();
@@ -110,7 +99,6 @@ export async function POST(request: Request) {
   }
 }
 
-// GET /api/sync — llamado por el cron de Vercel
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
