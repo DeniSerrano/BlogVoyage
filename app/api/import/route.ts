@@ -6,7 +6,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// ─── Limpieza de HTML con Claude ───
 async function cleanHtmlWithClaude(html: string): Promise<string> {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -48,14 +47,21 @@ ${html}`,
     const cleaned = data.content?.[0]?.text;
     return cleaned || html;
   } catch {
-    // Si Claude falla, devolver el HTML original sin romper la importación
     return html;
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const { wpUrl, storeId, selectedIds, overwrite } = await request.json();
+    const {
+      wpUrl,
+      storeId,
+      selectedIds,
+      overwrite,
+      migrateImages = true,
+      preserveSeo = true,
+      publishDirect = true,
+    } = await request.json();
 
     if (!wpUrl || !storeId || !selectedIds?.length) {
       return NextResponse.json({
@@ -88,12 +94,12 @@ export async function POST(request: Request) {
     const blogApiBase = `https://api.tiendanube.com/2025-03/${storeId}/blogs/${tienda.blog_id}`;
     const headers: Record<string, string> = {
       Authentication: `bearer ${tienda.access_token}`,
-      'User-Agent': 'WP-Importer (den@tiendanube.com)',
+      'User-Agent': 'BlogVoyage (support@blogvoyage.app)',
     };
 
     const wpRes = await fetch(`${cleanUrl}/wp-json/wp/v2/posts?per_page=100`, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; WP-Importer/1.0)',
+        'User-Agent': 'Mozilla/5.0 (compatible; BlogVoyage/1.0)',
         Accept: 'application/json',
       },
     });
@@ -159,23 +165,27 @@ export async function POST(request: Request) {
         .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)));
 
       try {
-        // ─── Limpiar HTML con Claude ───
         const cleanedContent = await cleanHtmlWithClaude(rawContent);
 
-        let isOverwrite = false;
         let method = 'POST';
         let url = `${blogApiBase}/posts`;
 
         if (overwrite && existingHandles[slug]) {
           method = 'PUT';
           url = `${blogApiBase}/posts/${existingHandles[slug]}`;
-          isOverwrite = true;
         }
 
+        // ─── SEO: respetar opción preserveSeo ───
         const yoast = post.yoast_head_json;
-        const seoTitle = yoast?.title || yoast?.og_title || decodedTitle;
-        const seoDescription = yoast?.description || yoast?.og_description || decodedExcerpt.substring(0, 160);
-        const seoHandle = yoast?.og_url?.split('/').filter(Boolean).pop() || slug;
+        const seoTitle = preserveSeo
+          ? (yoast?.title || yoast?.og_title || decodedTitle)
+          : decodedTitle;
+        const seoDescription = preserveSeo
+          ? (yoast?.description || yoast?.og_description || decodedExcerpt.substring(0, 160))
+          : decodedExcerpt.substring(0, 160);
+        const seoHandle = preserveSeo
+          ? (yoast?.og_url?.split('/').filter(Boolean).pop() || slug)
+          : slug;
 
         const metadata = JSON.stringify({
           language: 'es',
@@ -189,13 +199,14 @@ export async function POST(request: Request) {
         const formData = new FormData();
         formData.append('metadata', metadata);
         formData.append('content', cleanedContent);
-        formData.append('published', 'true');
+        formData.append('published', publishDirect ? 'true' : 'false');
 
-        if (post.featured_media && post.featured_media > 0) {
+        // ─── Imágenes: respetar opción migrateImages ───
+        if (migrateImages && post.featured_media && post.featured_media > 0) {
           try {
             const mediaRes = await fetch(
               `${cleanUrl}/wp-json/wp/v2/media/${post.featured_media}`,
-              { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WP-Importer/1.0)', Accept: 'application/json' } }
+              { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BlogVoyage/1.0)', Accept: 'application/json' } }
             );
             if (mediaRes.ok) {
               const media = await mediaRes.json();
