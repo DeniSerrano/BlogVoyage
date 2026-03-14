@@ -30,6 +30,7 @@ import {
   EditIcon,
   HeartIcon,
   StarIcon,
+  SearchIcon,
 } from '@nimbus-ds/icons';
 
 interface WPPost {
@@ -100,6 +101,7 @@ export default function Page() {
   const [urlSaved, setUrlSaved] = useState(false);
 
   const [posts, setPosts] = useState<WPPost[]>([]);
+  const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [duplicates, setDuplicates] = useState<Record<string, boolean>>({});
   const [overwrite, setOverwrite] = useState(false);
@@ -231,6 +233,7 @@ export default function Page() {
   const handlePreview = async () => {
     setLoading(true);
     setError('');
+    setSearch('');
     try {
       const data = await safeFetch('/api/preview', {
         method: 'POST',
@@ -306,7 +309,12 @@ export default function Page() {
     setOverwrite(false);
     setResults([]);
     setError('');
+    setSearch('');
   };
+
+  const filteredPosts = posts.filter((p) =>
+    p.title.toLowerCase().includes(search.toLowerCase())
+  );
 
   const hasDuplicates = Object.values(duplicates).some(Boolean);
   const selectedDuplicates = posts.filter((p) => selectedIds.has(p.wpId) && duplicates[p.slug]).length;
@@ -531,7 +539,23 @@ export default function Page() {
                         {selectedIds.size === posts.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
                       </Button>
                     </Box>
-                    {posts.map((post) => {
+
+                    {/* ── Buscador ── */}
+                    <Input
+                      label=""
+                      placeholder="Buscar por título..."
+                      value={search}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+                      append={<Icon source={<SearchIcon />} color="neutral-textDisabled" />}
+                    />
+
+                    {filteredPosts.length === 0 && search && (
+                      <Box display="flex" justifyContent="center" padding="4">
+                        <Text color="neutral-textDisabled">No se encontraron posts con ese título.</Text>
+                      </Box>
+                    )}
+
+                    {filteredPosts.map((post) => {
                       const isDup = duplicates[post.slug];
                       const isSelected = selectedIds.has(post.wpId);
                       return (
@@ -573,6 +597,7 @@ export default function Page() {
                         </Box>
                       );
                     })}
+
                     <Box display="flex" gap="2" paddingTop="2">
                       <Button appearance="neutral" onClick={reset}>Volver</Button>
                       <Button appearance="primary" onClick={handleImport} disabled={selectedIds.size === 0 || !storeId || importing}>
