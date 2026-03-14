@@ -293,7 +293,7 @@ export default function Page() {
     );
   }
 
-  // ─── Pantalla de bienvenida (sin blog configurado, primera vez) ───
+  // ─── Pantalla de bienvenida ───
   const WelcomeScreen = (
     <InitialScreen>
       <InitialScreen.Hero
@@ -316,12 +316,17 @@ export default function Page() {
           </>
         }
         actions={
-          <Button
-            appearance="primary"
-            onClick={() => setActiveTab(2 as TabIndex)}
-          >
+          <Button appearance="primary" onClick={() => setActiveTab(2 as TabIndex)}>
             Conectar mi blog
           </Button>
+        }
+        image={
+          <img
+            src="/26970-10-es_AR-logo_200x200.png"
+            alt="BlogVoyage"
+            width="180"
+            style={{ borderRadius: '24px' }}
+          />
         }
       />
     </InitialScreen>
@@ -343,17 +348,15 @@ export default function Page() {
                   <Icon color="primary-interactive" source={<GlobeIcon />} />
                   <Text fontWeight="bold">{savedWpUrl}</Text>
                 </Box>
-                <Box display="flex" gap="2">
-                  <Input
-                    label="Cambiar URL"
-                    placeholder="https://tu-blog.com"
-                    value={url}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                      setUrl(e.target.value);
-                      setUrlSaved(false);
-                    }}
-                  />
-                </Box>
+                <Input
+                  label="Cambiar URL"
+                  placeholder="https://tu-blog.com"
+                  value={url}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    setUrl(e.target.value);
+                    setUrlSaved(false);
+                  }}
+                />
                 <Box display="flex" gap="2">
                   <Button
                     appearance="neutral"
@@ -364,10 +367,7 @@ export default function Page() {
                   </Button>
                   <Button
                     appearance="primary"
-                    onClick={() => {
-                      setActiveTab(0 as TabIndex);
-                      handlePreview();
-                    }}
+                    onClick={() => { setActiveTab(0 as TabIndex); handlePreview(); }}
                     disabled={loading}
                   >
                     {loading ? <Spinner size="small" /> : 'Importar posts →'}
@@ -399,14 +399,8 @@ export default function Page() {
                   <Text>Ya podés importar tus posts desde la tab Importar.</Text>
                 </Alert>
               )}
-              {error && (
-                <Alert appearance="danger" title="Error"><Text>{error}</Text></Alert>
-              )}
-              <Button
-                appearance="primary"
-                disabled={!url || urlSaving}
-                onClick={handleSaveUrl}
-              >
+              {error && <Alert appearance="danger" title="Error"><Text>{error}</Text></Alert>}
+              <Button appearance="primary" disabled={!url || urlSaving} onClick={handleSaveUrl}>
                 {urlSaving ? <Spinner size="small" /> : 'Guardar y conectar'}
               </Button>
             </Box>
@@ -425,10 +419,10 @@ export default function Page() {
         {/* ── Tab Importar ── */}
         <Tabs.Item label="Importar">
 
-          {/* Sin blog configurado → pantalla de bienvenida */}
+          {/* Sin blog configurado → bienvenida */}
           {!isBlogConfigured && activeStep === 0 && WelcomeScreen}
 
-          {/* Con blog configurado y en paso 0 → card de blog listo */}
+          {/* Con blog configurado y en paso 0 */}
           {isBlogConfigured && activeStep === 0 && (
             <Box paddingTop="4" display="flex" flexDirection="column" gap="4">
               <Card>
@@ -441,11 +435,7 @@ export default function Page() {
                         <Text fontSize="caption" color="neutral-textLow">{savedWpUrl}</Text>
                       </Box>
                     </Box>
-                    <Button
-                      appearance="neutral"
-                      size="small"
-                      onClick={() => setActiveTab(2 as TabIndex)}
-                    >
+                    <Button appearance="neutral" size="small" onClick={() => setActiveTab(2 as TabIndex)}>
                       <Icon source={<EditIcon />} color="currentColor" />
                       Cambiar
                     </Button>
@@ -456,15 +446,14 @@ export default function Page() {
               <Button appearance="primary" onClick={handlePreview} disabled={loading}>
                 {loading ? (
                   <Box display="flex" alignItems="center" gap="2">
-                    <Spinner size="small" />
-                    <Text>Buscando posts...</Text>
+                    <Spinner size="small" /><Text>Buscando posts...</Text>
                   </Box>
                 ) : 'Buscar posts'}
               </Button>
             </Box>
           )}
 
-          {/* Stepper — solo visible en pasos 1 y 2 */}
+          {/* Stepper — solo en pasos 1 y 2 */}
           {activeStep > 0 && (
             <Box paddingTop="4" paddingBottom="4">
               <Stepper
