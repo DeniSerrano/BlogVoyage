@@ -47,7 +47,7 @@ interface HistoryEntry {
   details: ImportResult[];
 }
 
-type Step = 0 | 1 | 2; // 0=url, 1=preview, 2=done
+type Step = 0 | 1 | 2;
 
 async function safeFetch(url: string, options?: RequestInit) {
   const res = await fetch(url, options);
@@ -91,6 +91,9 @@ export default function Page() {
   const [selectedStep, setSelectedStep] = useState<Step>(0);
 
   const [url, setUrl] = useState('');
+  const [savedWpUrl, setSavedWpUrl] = useState('');
+  const [urlSaved, setUrlSaved] = useState(false);
+
   const [posts, setPosts] = useState<WPPost[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [duplicates, setDuplicates] = useState<Record<string, boolean>>({});
@@ -135,6 +138,22 @@ export default function Page() {
     }
     initNexo();
   }, []);
+
+  // ─── Cargar URL de WP guardada ───
+  const loadWpUrl = useCallback(async () => {
+    if (!storeId) return;
+    try {
+      const data = await safeFetch(`/api/wp-url?store_id=${storeId}`);
+      if (data.success && data.wp_url) {
+        setUrl(data.wp_url);
+        setSavedWpUrl(data.wp_url);
+      }
+    } catch { }
+  }, [storeId]);
+
+  useEffect(() => {
+    if (storeId) loadWpUrl();
+  }, [storeId, loadWpUrl]);
 
   // ─── Load history ───
   const loadHistory = useCallback(async () => {
@@ -230,7 +249,7 @@ export default function Page() {
     setOverwrite(false);
     setResults([]);
     setError('');
-    setUrl('');
+    setUrl(savedWpUrl);
   };
 
   const openPreview = (post: WPPost) => {
@@ -269,6 +288,8 @@ export default function Page() {
 
       {/* Tabs principales */}
       <Tabs preSelectedTab={0} selected={activeTab} onTabSelect={setActiveTab}>
+
+        {/* ── Tab Importar ── */}
         <Tabs.Item label="Importar">
 
           {/* Stepper */}
@@ -277,7 +298,6 @@ export default function Page() {
               activeStep={activeStep}
               selectedStep={selectedStep}
               onSelectStep={(step) => {
-                // Solo permitir volver a pasos anteriores completados
                 if (step < activeStep) setSelectedStep(step as Step);
               }}
             >
@@ -298,12 +318,40 @@ export default function Page() {
                       Ingresá la URL de tu blog de WordPress y buscamos los posts disponibles.
                     </Text>
                   </Box>
-                  <Input
-                    label="URL de WordPress"
-                    placeholder="https://tu-blog.com"
-                    value={url}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUrl(e.target.value)}
-                  />
+                  <Box display="flex" gap="2" alignItems="flex-end">
+                    <Box flex="1 1 auto">
+                      <Input
+                        label="URL de WordPress"
+                        placeholder="https://tu-blog.com"
+                        value={url}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          setUrl(e.target.value);
+                          setUrlSaved(false);
+                        }}
+                      />
+                    </Box>
+                    <Button
+                      appearance="neutral"
+                      disabled={!url || !storeId || url === savedWpUrl}
+                      onClick={async () => {
+                        if (!storeId) return;
+                        await safeFetch('/api/wp-url', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ storeId, wpUrl: url }),
+                        });
+                        setSavedWpUrl(url);
+                        setUrlSaved(true);
+                      }}
+                    >
+                      {urlSaved ? '✓ Guardada' : 'Guardar URL'}
+                    </Button>
+                  </Box>
+                  {urlSaved && (
+                    <Alert appearance="success" title="URL guardada">
+                      <Text>La próxima vez que abras la app va a estar precargada.</Text>
+                    </Alert>
+                  )}
                   {error && (
                     <Alert appearance="danger" title="Error">
                       <Text>{error}</Text>
@@ -338,11 +386,9 @@ export default function Page() {
                   </Box>
                 </Alert>
               )}
-
               <Card>
                 <Card.Body>
                   <Box display="flex" flexDirection="column" gap="3">
-                    {/* Header de la lista */}
                     <Box display="flex" justifyContent="space-between" alignItems="center">
                       <Box display="flex" flexDirection="column" gap="1">
                         <Title as="h2">{posts.length} posts encontrados</Title>
@@ -353,7 +399,6 @@ export default function Page() {
                       </Button>
                     </Box>
 
-                    {/* Lista de posts */}
                     {posts.map((post) => {
                       const isDup = duplicates[post.slug];
                       const isSelected = selectedIds.has(post.wpId);
@@ -376,8 +421,6 @@ export default function Page() {
                             onChange={() => toggleSelect(post.wpId)}
                             label=""
                           />
-
-                          {/* Thumbnail */}
                           {post.thumbnail ? (
                             <Thumbnail
                               src={post.thumbnail}
@@ -394,8 +437,6 @@ export default function Page() {
                               flexShrink={0}
                             />
                           )}
-
-                          {/* Info */}
                           <Box display="flex" flexDirection="column" gap="1" flex="1 1 auto">
                             <Box display="flex" alignItems="center" gap="2" flexWrap="wrap">
                               <Text fontWeight="bold">{post.title}</Text>
@@ -407,8 +448,6 @@ export default function Page() {
                               })}
                             </Text>
                           </Box>
-
-                          {/* Botón ver preview */}
                           <Button appearance="neutral" size="small" onClick={() => openPreview(post)}>
                             Ver
                           </Button>
@@ -416,7 +455,6 @@ export default function Page() {
                       );
                     })}
 
-                    {/* Acciones */}
                     <Box display="flex" gap="2" paddingTop="2">
                       <Button appearance="neutral" onClick={reset}>Volver</Button>
                       <Button
@@ -455,7 +493,6 @@ export default function Page() {
                       </Text>
                     </Alert>
                   )}
-
                   {results.map((r, i) => (
                     <Box
                       key={i}
@@ -473,7 +510,6 @@ export default function Page() {
                       {r.overwritten && <Tag appearance="primary">Actualizado</Tag>}
                     </Box>
                   ))}
-
                   <Button appearance="primary" onClick={reset}>Nueva importación</Button>
                 </Box>
               </Card.Body>
@@ -537,10 +573,10 @@ export default function Page() {
       <Sidebar
         open={sidebarOpen}
         onRemove={() => setSidebarOpen(false)}
-        maxWidth="480px"
+        maxWidth={{ xs: '100%', md: '480px' }}
       >
         <Sidebar.Header title={previewPost?.title || ''} />
-        <Sidebar.Body>
+        <Sidebar.Body padding="base">
           {previewPost && (
             <Box display="flex" flexDirection="column" gap="4">
               {previewPost.thumbnail && (
@@ -563,12 +599,9 @@ export default function Page() {
             </Box>
           )}
         </Sidebar.Body>
-        <Sidebar.Footer>
+        <Sidebar.Footer padding="base">
           <Box display="flex" gap="2">
-            <Button
-              appearance="neutral"
-              onClick={() => setSidebarOpen(false)}
-            >
+            <Button appearance="neutral" onClick={() => setSidebarOpen(false)}>
               Cerrar
             </Button>
             <Button
