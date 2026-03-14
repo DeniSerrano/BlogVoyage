@@ -6,6 +6,53 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// ─── Limpieza de HTML con Claude ───
+async function cleanHtmlWithClaude(html: string): Promise<string> {
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: `Limpiá el siguiente HTML que viene de WordPress. 
+
+REGLAS:
+- Eliminá todas las clases CSS (atributo class)
+- Eliminá todos los estilos inline (atributo style)
+- Eliminá atributos data-* innecesarios
+- Eliminá shortcodes de WordPress: [caption], [gallery], [embed], [vc_*], [et_*] y similares
+- Eliminá comentarios HTML
+- Eliminá divs y spans vacíos o puramente decorativos sin contenido semántico
+- Eliminá atributos id innecesarios
+- Mantené intactos: párrafos (p), títulos (h1-h6), listas (ul, ol, li), negrita (strong, b), itálica (em, i), links (a con href), imágenes (img con src y alt), tablas
+- Mantené el contenido textual exactamente igual, sin reescribir ni resumir nada
+- Devolvé SOLO el HTML limpio, sin explicaciones, sin markdown, sin bloques de código
+
+HTML a limpiar:
+${html}`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) return html;
+    const data = await response.json();
+    const cleaned = data.content?.[0]?.text;
+    return cleaned || html;
+  } catch {
+    // Si Claude falla, devolver el HTML original sin romper la importación
+    return html;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const { wpUrl, storeId, selectedIds, overwrite } = await request.json();
@@ -17,7 +64,6 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    // Get access token and blog_id from Supabase
     const { data: tienda } = await supabase
       .from('tiendas')
       .select('access_token, blog_id')
@@ -45,7 +91,6 @@ export async function POST(request: Request) {
       'User-Agent': 'WP-Importer (den@tiendanube.com)',
     };
 
-    // Fetch WordPress posts
     const wpRes = await fetch(`${cleanUrl}/wp-json/wp/v2/posts?per_page=100`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; WP-Importer/1.0)',
@@ -61,8 +106,6 @@ export async function POST(request: Request) {
     }
 
     const wpPosts = await wpRes.json();
-
-    // Filter selected posts
     const selectedPosts = wpPosts.filter((p: any) => selectedIds.includes(p.id));
 
     if (selectedPosts.length === 0) {
@@ -72,7 +115,6 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    // Get existing blog posts to check duplicates (if overwrite is relevant)
     let existingHandles: Record<string, string> = {};
     if (overwrite) {
       try {
@@ -82,17 +124,12 @@ export async function POST(request: Request) {
           const posts = existingData?.posts?.data || [];
           for (const post of posts) {
             const handle = post.data?.[0]?.handle;
-            if (handle) {
-              existingHandles[handle] = post.post_id;
-            }
+            if (handle) existingHandles[handle] = post.post_id;
           }
         }
-      } catch {
-        // Ignore errors checking existing posts
-      }
+      } catch { }
     }
 
-    // Import each selected post
     const processed: Array<{
       wpId: number;
       title: string;
@@ -103,54 +140,43 @@ export async function POST(request: Request) {
 
     for (const post of selectedPosts) {
       const title = post.title?.rendered?.replace(/<[^>]*>/g, '') || 'Sin título';
-      const content = post.content?.rendered || '';
+      const rawContent = post.content?.rendered || '';
       const excerpt = (post.excerpt?.rendered || '').replace(/<[^>]*>/g, '').trim();
       const slug = post.slug || '';
 
-      // Decode HTML entities in title
       const decodedTitle = title
-        .replace(/&#8217;/g, "'")
-        .replace(/&#8216;/g, "'")
-        .replace(/&#8220;/g, '"')
-        .replace(/&#8221;/g, '"')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&hellip;/g, '...')
-        .replace(/&nbsp;/g, ' ')
+        .replace(/&#8217;/g, "'").replace(/&#8216;/g, "'")
+        .replace(/&#8220;/g, '"').replace(/&#8221;/g, '"')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&hellip;/g, '...').replace(/&nbsp;/g, ' ')
         .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)));
 
       const decodedExcerpt = excerpt
-        .replace(/&#8217;/g, "'")
-        .replace(/&#8216;/g, "'")
-        .replace(/&#8220;/g, '"')
-        .replace(/&#8221;/g, '"')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&hellip;/g, '...')
-        .replace(/&nbsp;/g, ' ')
+        .replace(/&#8217;/g, "'").replace(/&#8216;/g, "'")
+        .replace(/&#8220;/g, '"').replace(/&#8221;/g, '"')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&hellip;/g, '...').replace(/&nbsp;/g, ' ')
         .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num)));
 
       try {
+        // ─── Limpiar HTML con Claude ───
+        const cleanedContent = await cleanHtmlWithClaude(rawContent);
+
         let isOverwrite = false;
         let method = 'POST';
         let url = `${blogApiBase}/posts`;
 
-        // Check if we should overwrite
         if (overwrite && existingHandles[slug]) {
           method = 'PUT';
           url = `${blogApiBase}/posts/${existingHandles[slug]}`;
           isOverwrite = true;
         }
 
-        // Extract Yoast SEO data if available
         const yoast = post.yoast_head_json;
         const seoTitle = yoast?.title || yoast?.og_title || decodedTitle;
         const seoDescription = yoast?.description || yoast?.og_description || decodedExcerpt.substring(0, 160);
         const seoHandle = yoast?.og_url?.split('/').filter(Boolean).pop() || slug;
 
-        // Blog API uses multipart/form-data
         const metadata = JSON.stringify({
           language: 'es',
           title: decodedTitle,
@@ -162,41 +188,24 @@ export async function POST(request: Request) {
 
         const formData = new FormData();
         formData.append('metadata', metadata);
-        formData.append('content', content);
+        formData.append('content', cleanedContent);
         formData.append('published', 'true');
 
-        // Get featured image if available
         if (post.featured_media && post.featured_media > 0) {
           try {
             const mediaRes = await fetch(
               `${cleanUrl}/wp-json/wp/v2/media/${post.featured_media}`,
-              {
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (compatible; WP-Importer/1.0)',
-                  Accept: 'application/json',
-                },
-              }
+              { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WP-Importer/1.0)', Accept: 'application/json' } }
             );
             if (mediaRes.ok) {
               const media = await mediaRes.json();
               const imageUrl = media.source_url || media.guid?.rendered;
-              if (imageUrl) {
-                formData.append('thumbnail', imageUrl);
-              }
+              if (imageUrl) formData.append('thumbnail', imageUrl);
             }
-          } catch {
-            // Skip thumbnail if we can't get it
-          }
+          } catch { }
         }
 
-        const res = await fetch(url, {
-          method,
-          headers: {
-            ...headers,
-            // Don't set Content-Type - fetch sets it automatically for FormData with boundary
-          },
-          body: formData,
-        });
+        const res = await fetch(url, { method, headers, body: formData });
 
         if (method === 'PUT' && res.status === 204) {
           processed.push({ wpId: post.id, title: decodedTitle, success: true, overwritten: true });
@@ -205,27 +214,14 @@ export async function POST(request: Request) {
         } else {
           const errorText = await res.text();
           console.error(`Error importing "${decodedTitle}": ${res.status} - ${errorText}`);
-          processed.push({
-            wpId: post.id,
-            title: decodedTitle,
-            success: false,
-            overwritten: false,
-            error: `HTTP ${res.status}: ${errorText.substring(0, 200)}`,
-          });
+          processed.push({ wpId: post.id, title: decodedTitle, success: false, overwritten: false, error: `HTTP ${res.status}: ${errorText.substring(0, 200)}` });
         }
       } catch (err: any) {
         console.error(`Exception importing "${decodedTitle}":`, err);
-        processed.push({
-          wpId: post.id,
-          title: decodedTitle,
-          success: false,
-          overwritten: false,
-          error: err.message,
-        });
+        processed.push({ wpId: post.id, title: decodedTitle, success: false, overwritten: false, error: err.message });
       }
     }
 
-    // Save to import history
     try {
       await supabase.from('import_history').insert({
         store_id: storeId,
@@ -235,9 +231,7 @@ export async function POST(request: Request) {
         failed: processed.filter((p) => !p.success).length,
         details: processed,
       });
-    } catch {
-      // Don't fail the import if history save fails
-    }
+    } catch { }
 
     return NextResponse.json({ success: true, processed });
   } catch (error: any) {
