@@ -29,7 +29,6 @@ import {
   EditIcon,
 } from '@nimbus-ds/icons';
 
-// ─── Types ───
 interface WPPost {
   wpId: number;
   title: string;
@@ -112,6 +111,12 @@ export default function Page() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  const [autosyncEnabled, setAutosyncEnabled] = useState(false);
+  const [autosyncPublish, setAutosyncPublish] = useState(false);
+  const [autosyncLastSynced, setAutosyncLastSynced] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ imported: number; failed: number } | null>(null);
+
   // ─── Init Nexo ───
   useEffect(() => {
     async function initNexo() {
@@ -142,21 +147,23 @@ export default function Page() {
     initNexo();
   }, []);
 
-  // ─── Cargar URL guardada ───
-  const loadWpUrl = useCallback(async () => {
+  // ─── Cargar URL y settings ───
+  const loadSettings = useCallback(async () => {
     if (!storeId) return;
     try {
       const data = await safeFetch(`/api/wp-url?store_id=${storeId}`);
-      if (data.success && data.wp_url) {
-        setUrl(data.wp_url);
-        setSavedWpUrl(data.wp_url);
+      if (data.success) {
+        if (data.wp_url) { setUrl(data.wp_url); setSavedWpUrl(data.wp_url); }
+        setAutosyncEnabled(data.autosync_enabled || false);
+        setAutosyncPublish(data.autosync_publish || false);
+        setAutosyncLastSynced(data.autosync_last_synced_at || null);
       }
     } catch { }
   }, [storeId]);
 
   useEffect(() => {
-    if (storeId) loadWpUrl();
-  }, [storeId, loadWpUrl]);
+    if (storeId) loadSettings();
+  }, [storeId, loadSettings]);
 
   // ─── Load history ───
   const loadHistory = useCallback(async () => {
@@ -187,6 +194,41 @@ export default function Page() {
       setUrlSaved(true);
     } catch { }
     setUrlSaving(false);
+  };
+
+  // ─── Autosync toggle ───
+  const handleAutosyncToggle = async (field: 'enabled' | 'publish', value: boolean) => {
+    if (!storeId) return;
+    if (field === 'enabled') setAutosyncEnabled(value);
+    if (field === 'publish') setAutosyncPublish(value);
+    await safeFetch('/api/wp-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        storeId,
+        autosync_enabled: field === 'enabled' ? value : autosyncEnabled,
+        autosync_publish: field === 'publish' ? value : autosyncPublish,
+      }),
+    });
+  };
+
+  // ─── Sync manual ───
+  const handleManualSync = async () => {
+    if (!storeId) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const data = await safeFetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeId }),
+      });
+      if (data.success) {
+        setSyncResult({ imported: data.result.imported || 0, failed: data.result.failed || 0 });
+        setAutosyncLastSynced(new Date().toISOString());
+      }
+    } catch { }
+    setSyncing(false);
   };
 
   // ─── Preview ───
@@ -277,7 +319,6 @@ export default function Page() {
   const failCount = results.filter((r) => !r.success).length;
   const isBlogConfigured = !!savedWpUrl;
 
-  // ─── Nexo loading / error ───
   if (!nexoReady) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
@@ -293,7 +334,6 @@ export default function Page() {
     );
   }
 
-  // ─── Pantalla de bienvenida ───
   const WelcomeScreen = (
     <InitialScreen>
       <InitialScreen.Hero
@@ -301,18 +341,9 @@ export default function Page() {
         title="Traé tu blog de WordPress a Tiendanube"
         bullets={
           <>
-            <InitialScreen.Bullet
-              icon={<FileAltIcon />}
-              text="Importá tus posts con un clic, con título, contenido, imágenes y SEO"
-            />
-            <InitialScreen.Bullet
-              icon={<MagicWandIcon />}
-              text="Seleccioná qué posts querés traer y cuáles dejar"
-            />
-            <InitialScreen.Bullet
-              icon={<RocketIcon />}
-              text="Tu contenido en Tiendanube en minutos, sin perder nada"
-            />
+            <InitialScreen.Bullet icon={<FileAltIcon />} text="Importá tus posts con un clic, con título, contenido, imágenes y SEO" />
+            <InitialScreen.Bullet icon={<MagicWandIcon />} text="Seleccioná qué posts querés traer y cuáles dejar" />
+            <InitialScreen.Bullet icon={<RocketIcon />} text="Tu contenido en Tiendanube en minutos, sin perder nada" />
           </>
         }
         actions={
@@ -321,18 +352,12 @@ export default function Page() {
           </Button>
         }
         image={
-          <img
-            src="/26970-10-es_AR-logo_200x200.png"
-            alt="BlogVoyage"
-            width="180"
-            style={{ borderRadius: '24px' }}
-          />
+          <img src="/26970-10-es_AR-logo_200x200.png" alt="BlogVoyage" width="180" style={{ borderRadius: '24px' }} />
         }
       />
     </InitialScreen>
   );
 
-  // ─── Tab Mi Blog ───
   const MyBlogTab = (
     <Box paddingTop="4" display="flex" flexDirection="column" gap="4">
       {isBlogConfigured ? (
@@ -340,6 +365,7 @@ export default function Page() {
           <Alert appearance="success" title="Blog conectado">
             <Text>Tu blog de WordPress está configurado y listo para importar.</Text>
           </Alert>
+
           <Card>
             <Card.Header title="Tu blog de WordPress" />
             <Card.Body>
@@ -352,26 +378,54 @@ export default function Page() {
                   label="Cambiar URL"
                   placeholder="https://tu-blog.com"
                   value={url}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                    setUrl(e.target.value);
-                    setUrlSaved(false);
-                  }}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setUrl(e.target.value); setUrlSaved(false); }}
                 />
                 <Box display="flex" gap="2">
-                  <Button
-                    appearance="neutral"
-                    disabled={!url || url === savedWpUrl || urlSaving}
-                    onClick={handleSaveUrl}
-                  >
+                  <Button appearance="neutral" disabled={!url || url === savedWpUrl || urlSaving} onClick={handleSaveUrl}>
                     {urlSaving ? <Spinner size="small" /> : 'Actualizar URL'}
                   </Button>
-                  <Button
-                    appearance="primary"
-                    onClick={() => { setActiveTab(0 as TabIndex); handlePreview(); }}
-                    disabled={loading}
-                  >
+                  <Button appearance="primary" onClick={() => { setActiveTab(0 as TabIndex); handlePreview(); }} disabled={loading}>
                     {loading ? <Spinner size="small" /> : 'Importar posts →'}
                   </Button>
+                </Box>
+              </Box>
+            </Card.Body>
+          </Card>
+
+          <Card>
+            <Card.Header title="Sincronización automática" />
+            <Card.Body>
+              <Box display="flex" flexDirection="column" gap="4">
+                <Checkbox
+                  name="autosync_enabled"
+                  label="Activar sincronización automática diaria"
+                  checked={autosyncEnabled}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleAutosyncToggle('enabled', e.target.checked)}
+                />
+                {autosyncEnabled && (
+                  <Checkbox
+                    name="autosync_publish"
+                    label="Publicar posts automáticamente (si no, se guardan como borrador)"
+                    checked={autosyncPublish}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleAutosyncToggle('publish', e.target.checked)}
+                  />
+                )}
+                {autosyncLastSynced && (
+                  <Text fontSize="caption" color="neutral-textLow">
+                    Última sincronización: {new Date(autosyncLastSynced).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                )}
+                <Box display="flex" gap="2" alignItems="center">
+                  <Button appearance="neutral" onClick={handleManualSync} disabled={syncing}>
+                    {syncing ? (
+                      <Box display="flex" alignItems="center" gap="2"><Spinner size="small" /><Text>Sincronizando...</Text></Box>
+                    ) : '🔄 Sincronizar ahora'}
+                  </Button>
+                  {syncResult && (
+                    <Tag appearance={syncResult.failed > 0 ? 'warning' : 'success'}>
+                      {syncResult.imported} importados{syncResult.failed > 0 ? ` · ${syncResult.failed} fallidos` : ''}
+                    </Tag>
+                  )}
                 </Box>
               </Box>
             </Card.Body>
@@ -389,10 +443,7 @@ export default function Page() {
                 label="URL de WordPress"
                 placeholder="https://tu-blog.com"
                 value={url}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  setUrl(e.target.value);
-                  setUrlSaved(false);
-                }}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setUrl(e.target.value); setUrlSaved(false); }}
               />
               {urlSaved && (
                 <Alert appearance="success" title="¡Blog conectado!">
@@ -416,13 +467,9 @@ export default function Page() {
 
       <Tabs preSelectedTab={0} selected={activeTab} onTabSelect={(i) => setActiveTab(i as TabIndex)}>
 
-        {/* ── Tab Importar ── */}
         <Tabs.Item label="Importar">
-
-          {/* Sin blog configurado → bienvenida */}
           {!isBlogConfigured && activeStep === 0 && WelcomeScreen}
 
-          {/* Con blog configurado y en paso 0 */}
           {isBlogConfigured && activeStep === 0 && (
             <Box paddingTop="4" display="flex" flexDirection="column" gap="4">
               <Card>
@@ -445,23 +492,18 @@ export default function Page() {
               {error && <Alert appearance="danger" title="Error"><Text>{error}</Text></Alert>}
               <Button appearance="primary" onClick={handlePreview} disabled={loading}>
                 {loading ? (
-                  <Box display="flex" alignItems="center" gap="2">
-                    <Spinner size="small" /><Text>Buscando posts...</Text>
-                  </Box>
+                  <Box display="flex" alignItems="center" gap="2"><Spinner size="small" /><Text>Buscando posts...</Text></Box>
                 ) : 'Buscar posts'}
               </Button>
             </Box>
           )}
 
-          {/* Stepper — solo en pasos 1 y 2 */}
           {activeStep > 0 && (
             <Box paddingTop="4" paddingBottom="4">
               <Stepper
                 activeStep={activeStep}
                 selectedStep={selectedStep}
-                onSelectStep={(step) => {
-                  if (step < activeStep) setSelectedStep(step as Step);
-                }}
+                onSelectStep={(step) => { if (step < activeStep) setSelectedStep(step as Step); }}
               >
                 {STEP_LABELS.map((label) => (
                   <Stepper.Item key={label} label={label} />
@@ -470,7 +512,6 @@ export default function Page() {
             </Box>
           )}
 
-          {/* ── Paso 1: Selección ── */}
           {selectedStep === 1 && (
             <Box display="flex" flexDirection="column" gap="4">
               {hasDuplicates && (
@@ -546,9 +587,7 @@ export default function Page() {
                       <Button appearance="neutral" onClick={reset}>Volver</Button>
                       <Button appearance="primary" onClick={handleImport} disabled={selectedIds.size === 0 || !storeId || importing}>
                         {importing ? (
-                          <Box display="flex" alignItems="center" gap="2">
-                            <Spinner size="small" /><Text>Importando...</Text>
-                          </Box>
+                          <Box display="flex" alignItems="center" gap="2"><Spinner size="small" /><Text>Importando...</Text></Box>
                         ) : `Importar ${selectedIds.size} post${selectedIds.size !== 1 ? 's' : ''}`}
                       </Button>
                     </Box>
@@ -558,7 +597,6 @@ export default function Page() {
             </Box>
           )}
 
-          {/* ── Paso 2: Resultado ── */}
           {selectedStep === 2 && (
             <Card>
               <Card.Body>
@@ -584,7 +622,6 @@ export default function Page() {
           )}
         </Tabs.Item>
 
-        {/* ── Tab Historial ── */}
         <Tabs.Item label="Historial">
           <Box paddingTop="4">
             <Card>
@@ -620,14 +657,12 @@ export default function Page() {
           </Box>
         </Tabs.Item>
 
-        {/* ── Tab Mi Blog ── */}
         <Tabs.Item label="Mi blog">
           {MyBlogTab}
         </Tabs.Item>
 
       </Tabs>
 
-      {/* ── Sidebar preview ── */}
       <Sidebar open={sidebarOpen} onRemove={() => setSidebarOpen(false)} maxWidth={{ xs: '100%', md: '480px' }}>
         <Sidebar.Header title={previewPost?.title || ''} />
         <Sidebar.Body padding="base">
