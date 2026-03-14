@@ -13,6 +13,10 @@ import {
   Checkbox,
   Spinner,
   Tag,
+  Thumbnail,
+  Tabs,
+  Sidebar,
+  Stepper,
 } from '@nimbus-ds/components';
 
 // ─── Types ───
@@ -23,6 +27,7 @@ interface WPPost {
   date: string;
   slug: string;
   link: string;
+  thumbnail?: string;
 }
 
 interface ImportResult {
@@ -42,10 +47,8 @@ interface HistoryEntry {
   details: ImportResult[];
 }
 
-type Step = 'url' | 'preview' | 'importing' | 'done';
-type Tab = 'import' | 'history';
+type Step = 0 | 1 | 2; // 0=url, 1=preview, 2=done
 
-// Safe JSON fetch helper
 async function safeFetch(url: string, options?: RequestInit) {
   const res = await fetch(url, options);
   const text = await res.text();
@@ -61,91 +64,70 @@ async function safeFetch(url: string, options?: RequestInit) {
   return data;
 }
 
-// Helper: get store info by dispatching Nexo action directly
 async function getNexoStoreInfo(nexo: any): Promise<{ id: string; name: string } | null> {
   return new Promise((resolve) => {
     try {
-      // Try dispatching the store info action
       const unsub = nexo.suscribe('app/store/info', (data: any) => {
         unsub?.();
         resolve(data);
       });
       nexo.dispatch('app/store/info');
-
-      // Timeout after 3 seconds
-      setTimeout(() => {
-        unsub?.();
-        resolve(null);
-      }, 3000);
+      setTimeout(() => { unsub?.(); resolve(null); }, 3000);
     } catch {
       resolve(null);
     }
   });
 }
 
+const STEP_LABELS = ['Origen', 'Selección', 'Resultado'];
+
 export default function Page() {
-  // Nexo state
   const [nexoReady, setNexoReady] = useState(false);
   const [nexoError, setNexoError] = useState('');
-
-  // App state
   const [storeId, setStoreId] = useState<string | null>(null);
-  const [storeName, setStoreName] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<Tab>('import');
+
+  const [activeTab, setActiveTab] = useState(0);
+  const [activeStep, setActiveStep] = useState<Step>(0);
+  const [selectedStep, setSelectedStep] = useState<Step>(0);
+
   const [url, setUrl] = useState('');
-  const [step, setStep] = useState<Step>('url');
   const [posts, setPosts] = useState<WPPost[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [duplicates, setDuplicates] = useState<Record<string, boolean>>({});
   const [overwrite, setOverwrite] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<ImportResult[]>([]);
   const [error, setError] = useState('');
+
+  const [previewPost, setPreviewPost] = useState<WPPost | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // ─── Init Nexo + get store info ───
+  // ─── Init Nexo ───
   useEffect(() => {
     async function initNexo() {
       try {
         const nexoModule = await import('@tiendanube/nexo');
-        // Try different export patterns
         const create = nexoModule.create || nexoModule.default?.create;
         const connect = nexoModule.connect || nexoModule.default?.connect;
         const iAmReady = nexoModule.iAmReady || nexoModule.default?.iAmReady;
-
-        if (!create || !connect || !iAmReady) {
-          throw new Error('Nexo exports not found');
-        }
-
-        const nexo = create({
-          clientId: process.env.NEXT_PUBLIC_TIENDANUBE_CLIENT_ID || '0',
-          log: true,
-        });
-
+        if (!create || !connect || !iAmReady) throw new Error('Nexo exports not found');
+        const nexo = create({ clientId: process.env.NEXT_PUBLIC_TIENDANUBE_CLIENT_ID || '0', log: true });
         await connect(nexo);
         setNexoReady(true);
         iAmReady(nexo);
-
-        // Try to get store info via Nexo action
         const storeInfo = await getNexoStoreInfo(nexo);
         if (storeInfo?.id) {
           setStoreId(storeInfo.id);
-          setStoreName(storeInfo.name || '');
         } else {
-          // Fallback: try to get from URL referrer or ask the API
-          console.warn('Could not get store info from Nexo, checking Supabase...');
-          // Use our auth callback stored store_id
           try {
             const res = await fetch('/api/auth/store-id');
             const data = await res.json();
-            if (data.storeId) {
-              setStoreId(data.storeId);
-            }
-          } catch {
-            console.warn('No fallback store_id available');
-          }
+            if (data.storeId) setStoreId(data.storeId);
+          } catch { }
         }
       } catch (err: any) {
         setNexoError(err?.message || 'Error conectando con Nexo');
@@ -161,12 +143,12 @@ export default function Page() {
     try {
       const data = await safeFetch(`/api/history?store_id=${storeId}`);
       if (data.success) setHistory(data.history || []);
-    } catch {}
+    } catch { }
     setLoadingHistory(false);
   }, [storeId]);
 
   useEffect(() => {
-    if (activeTab === 'history' && storeId) loadHistory();
+    if (activeTab === 1 && storeId) loadHistory();
   }, [activeTab, storeId, loadHistory]);
 
   // ─── Preview ───
@@ -179,12 +161,9 @@ export default function Page() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wpUrl: url }),
       });
-
       if (!data.success) throw new Error(data.error);
-
       setPosts(data.posts);
       setSelectedIds(new Set(data.posts.map((p: WPPost) => p.wpId)));
-
       if (storeId) {
         try {
           const dupData = await safeFetch('/api/check-duplicates', {
@@ -193,10 +172,10 @@ export default function Page() {
             body: JSON.stringify({ storeId, slugs: data.posts.map((p: WPPost) => p.slug) }),
           });
           if (dupData.success) setDuplicates(dupData.duplicates);
-        } catch {}
+        } catch { }
       }
-
-      setStep('preview');
+      setActiveStep(1);
+      setSelectedStep(1);
     } catch (err: any) {
       setError(err.message || 'Error conectando con WordPress');
     }
@@ -205,49 +184,34 @@ export default function Page() {
 
   // ─── Import ───
   const handleImport = async () => {
-    if (!storeId) {
-      setError('No se pudo identificar la tienda. Recargá la app.');
-      return;
-    }
-    setStep('importing');
-    setProgress(0);
-    setResults([]);
+    if (!storeId) { setError('No se pudo identificar la tienda. Recargá la app.'); return; }
+    setImporting(true);
     setError('');
-
     try {
       const data = await safeFetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wpUrl: url,
-          storeId,
-          selectedIds: Array.from(selectedIds),
-          overwrite,
-        }),
+        body: JSON.stringify({ wpUrl: url, storeId, selectedIds: Array.from(selectedIds), overwrite }),
       });
-
       if (data.success && Array.isArray(data.processed)) {
         setResults(data.processed);
-        const total = data.processed.length;
-        for (let i = 1; i <= total; i++) {
-          setProgress(Math.round((i / total) * 100));
-          await new Promise((r) => setTimeout(r, 80));
-        }
       } else {
         setError(data.error || 'Error desconocido en la importación');
       }
-      setStep('done');
+      setActiveStep(2);
+      setSelectedStep(2);
     } catch (err: any) {
       setError(err.message);
-      setStep('done');
+      setActiveStep(2);
+      setSelectedStep(2);
     }
+    setImporting(false);
   };
 
   const toggleSelect = (wpId: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(wpId)) next.delete(wpId);
-      else next.add(wpId);
+      next.has(wpId) ? next.delete(wpId) : next.add(wpId);
       return next;
     });
   };
@@ -258,22 +222,26 @@ export default function Page() {
   };
 
   const reset = () => {
-    setStep('url');
+    setActiveStep(0);
+    setSelectedStep(0);
     setPosts([]);
     setSelectedIds(new Set());
     setDuplicates({});
     setOverwrite(false);
     setResults([]);
     setError('');
-    setProgress(0);
+    setUrl('');
+  };
+
+  const openPreview = (post: WPPost) => {
+    setPreviewPost(post);
+    setSidebarOpen(true);
   };
 
   const hasDuplicates = Object.values(duplicates).some(Boolean);
-  const selectedDuplicates = posts.filter(
-    (p) => selectedIds.has(p.wpId) && duplicates[p.slug]
-  ).length;
-  const successCount = (results || []).filter((r) => r.success).length;
-  const failCount = (results || []).filter((r) => !r.success).length;
+  const selectedDuplicates = posts.filter((p) => selectedIds.has(p.wpId) && duplicates[p.slug]).length;
+  const successCount = results.filter((r) => r.success).length;
+  const failCount = results.filter((r) => !r.success).length;
 
   // ─── Nexo loading / error ───
   if (!nexoReady) {
@@ -295,38 +263,39 @@ export default function Page() {
 
   return (
     <Box padding="4" display="flex" flexDirection="column" gap="4">
+
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center">
-        <Title as="h1">Migrador de Blogs</Title>
-      </Box>
+      <Title as="h1">BlogVoyage</Title>
 
-      {/* Tabs */}
-      <Box display="flex" gap="2">
-        <Button
-          appearance={activeTab === 'import' ? 'primary' : 'neutral'}
-          onClick={() => setActiveTab('import')}
-        >
-          Importar
-        </Button>
-        <Button
-          appearance={activeTab === 'history' ? 'primary' : 'neutral'}
-          onClick={() => setActiveTab('history')}
-        >
-          Historial
-        </Button>
-      </Box>
+      {/* Tabs principales */}
+      <Tabs preSelectedTab={0} selected={activeTab} onTabSelect={setActiveTab}>
+        <Tabs.Item label="Importar">
 
-      {/* ═══ IMPORT TAB ═══ */}
-      {activeTab === 'import' && (
-        <>
-          {step === 'url' && (
+          {/* Stepper */}
+          <Box paddingTop="4" paddingBottom="4">
+            <Stepper
+              activeStep={activeStep}
+              selectedStep={selectedStep}
+              onSelectStep={(step) => {
+                // Solo permitir volver a pasos anteriores completados
+                if (step < activeStep) setSelectedStep(step as Step);
+              }}
+            >
+              {STEP_LABELS.map((label) => (
+                <Stepper.Item key={label} label={label} />
+              ))}
+            </Stepper>
+          </Box>
+
+          {/* ── Paso 0: URL ── */}
+          {selectedStep === 0 && (
             <Card>
               <Card.Body>
                 <Box display="flex" flexDirection="column" gap="4">
                   <Box>
-                    <Title as="h2">Importar desde WordPress</Title>
-                    <Text>
-                      Ingresá la URL del blog de WordPress para ver los posts disponibles.
+                    <Title as="h2">¿De dónde importamos?</Title>
+                    <Text color="neutral-textLow">
+                      Ingresá la URL de tu blog de WordPress y buscamos los posts disponibles.
                     </Text>
                   </Box>
                   <Input
@@ -340,90 +309,127 @@ export default function Page() {
                       <Text>{error}</Text>
                     </Alert>
                   )}
-                  <Button
-                    appearance="primary"
-                    onClick={handlePreview}
-                    disabled={loading || !url}
-                  >
-                    {loading ? 'Buscando posts...' : 'Buscar Posts'}
+                  <Button appearance="primary" onClick={handlePreview} disabled={loading || !url}>
+                    {loading ? (
+                      <Box display="flex" alignItems="center" gap="2">
+                        <Spinner size="small" />
+                        <Text>Buscando posts...</Text>
+                      </Box>
+                    ) : 'Buscar posts'}
                   </Button>
                 </Box>
               </Card.Body>
             </Card>
           )}
 
-          {step === 'preview' && (
+          {/* ── Paso 1: Selección ── */}
+          {selectedStep === 1 && (
             <Box display="flex" flexDirection="column" gap="4">
               {hasDuplicates && (
-                <Alert appearance="warning" title="Se encontraron páginas duplicadas">
+                <Alert appearance="warning" title="Hay posts duplicados">
                   <Box display="flex" flexDirection="column" gap="2">
-                    <Text>Algunos posts ya existen como páginas en tu tienda.</Text>
+                    <Text>Algunos posts ya existen en tu tienda.</Text>
                     <Checkbox
                       name="overwrite"
-                      label={`Sobreescribir páginas existentes (${selectedDuplicates} duplicados seleccionados)`}
+                      label={`Sobreescribir existentes (${selectedDuplicates} seleccionados)`}
                       checked={overwrite}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setOverwrite(e.target.checked)
-                      }
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOverwrite(e.target.checked)}
                     />
                   </Box>
                 </Alert>
               )}
+
               <Card>
                 <Card.Body>
-                  <Box display="flex" flexDirection="column" gap="4">
+                  <Box display="flex" flexDirection="column" gap="3">
+                    {/* Header de la lista */}
                     <Box display="flex" justifyContent="space-between" alignItems="center">
-                      <Box>
+                      <Box display="flex" flexDirection="column" gap="1">
                         <Title as="h2">{posts.length} posts encontrados</Title>
-                        <Text color="neutral-textDisabled">{selectedIds.size} seleccionados</Text>
+                        <Text color="neutral-textLow">{selectedIds.size} seleccionados</Text>
                       </Box>
-                      <Button appearance="neutral" onClick={toggleSelectAll}>
+                      <Button appearance="neutral" size="small" onClick={toggleSelectAll}>
                         {selectedIds.size === posts.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
                       </Button>
                     </Box>
+
+                    {/* Lista de posts */}
                     {posts.map((post) => {
                       const isDup = duplicates[post.slug];
+                      const isSelected = selectedIds.has(post.wpId);
                       return (
                         <Box
                           key={post.wpId}
                           display="flex"
-                          alignItems="flex-start"
-                          gap="2"
-                          padding="2"
-                          borderColor={selectedIds.has(post.wpId) ? 'primary-interactive' : 'neutral-surfaceHighlight'}
+                          alignItems="center"
+                          gap="3"
+                          padding="3"
+                          borderColor={isSelected ? 'primary-interactive' : 'neutral-surfaceHighlight'}
                           borderStyle="solid"
                           borderWidth="1"
                           borderRadius="2"
+                          backgroundColor={isSelected ? 'primary-surface' : 'neutral-background'}
                         >
                           <Checkbox
                             name={`post-${post.wpId}`}
-                            checked={selectedIds.has(post.wpId)}
+                            checked={isSelected}
                             onChange={() => toggleSelect(post.wpId)}
                             label=""
                           />
+
+                          {/* Thumbnail */}
+                          {post.thumbnail ? (
+                            <Thumbnail
+                              src={post.thumbnail}
+                              alt={post.title}
+                              width="64px"
+                              aspectRatio="16/9"
+                            />
+                          ) : (
+                            <Box
+                              width="64px"
+                              height="36px"
+                              backgroundColor="neutral-surfaceHighlight"
+                              borderRadius="1"
+                              flexShrink={0}
+                            />
+                          )}
+
+                          {/* Info */}
                           <Box display="flex" flexDirection="column" gap="1" flex="1 1 auto">
-                            <Box display="flex" alignItems="center" gap="2">
+                            <Box display="flex" alignItems="center" gap="2" flexWrap="wrap">
                               <Text fontWeight="bold">{post.title}</Text>
                               {isDup && <Tag appearance="warning">Duplicado</Tag>}
                             </Box>
-                            <Text fontSize="caption" color="neutral-textDisabled">
-                              {post.excerpt || 'Sin descripción'}
-                            </Text>
-                            <Text fontSize="caption" color="neutral-textDisabled">
-                              {new Date(post.date).toLocaleDateString('es-AR')}
+                            <Text fontSize="caption" color="neutral-textLow">
+                              {new Date(post.date).toLocaleDateString('es-AR', {
+                                day: '2-digit', month: 'short', year: 'numeric'
+                              })}
                             </Text>
                           </Box>
+
+                          {/* Botón ver preview */}
+                          <Button appearance="neutral" size="small" onClick={() => openPreview(post)}>
+                            Ver
+                          </Button>
                         </Box>
                       );
                     })}
-                    <Box display="flex" gap="2">
+
+                    {/* Acciones */}
+                    <Box display="flex" gap="2" paddingTop="2">
                       <Button appearance="neutral" onClick={reset}>Volver</Button>
                       <Button
                         appearance="primary"
                         onClick={handleImport}
-                        disabled={selectedIds.size === 0 || !storeId}
+                        disabled={selectedIds.size === 0 || !storeId || importing}
                       >
-                        Importar {selectedIds.size} post{selectedIds.size !== 1 ? 's' : ''}
+                        {importing ? (
+                          <Box display="flex" alignItems="center" gap="2">
+                            <Spinner size="small" />
+                            <Text>Importando...</Text>
+                          </Box>
+                        ) : `Importar ${selectedIds.size} post${selectedIds.size !== 1 ? 's' : ''}`}
                       </Button>
                     </Box>
                   </Box>
@@ -432,33 +438,8 @@ export default function Page() {
             </Box>
           )}
 
-          {step === 'importing' && (
-            <Card>
-              <Card.Body>
-                <Box display="flex" flexDirection="column" alignItems="center" gap="4" padding="8">
-                  <Spinner size="large" />
-                  <Title as="h2">Importando...</Title>
-                  <Text color="neutral-textDisabled">Creando páginas en tu tienda</Text>
-                  <Box width="100%">
-                    <Box backgroundColor="neutral-surfaceHighlight" borderRadius="2" height="8px" overflow="hidden" width="100%">
-                      <Box
-                        backgroundColor="primary-interactive"
-                        height="8px"
-                        borderRadius="2"
-                        width={`${progress}%`}
-                        style={{ transition: 'width 0.3s ease' } as any}
-                      />
-                    </Box>
-                    <Box display="flex" justifyContent="center" paddingTop="2">
-                      <Text fontWeight="bold" color="primary-interactive">{progress}%</Text>
-                    </Box>
-                  </Box>
-                </Box>
-              </Card.Body>
-            </Card>
-          )}
-
-          {step === 'done' && (
+          {/* ── Paso 2: Resultado ── */}
+          {selectedStep === 2 && (
             <Card>
               <Card.Body>
                 <Box display="flex" flexDirection="column" gap="4">
@@ -467,85 +448,144 @@ export default function Page() {
                       <Text>{error}</Text>
                     </Alert>
                   ) : (
-                    <>
-                      <Alert appearance="success" title="¡Importación finalizada!">
-                        <Text>
-                          {successCount} de {(results || []).length} posts importados correctamente
-                          {failCount > 0 && ` (${failCount} fallaron)`}
-                        </Text>
-                      </Alert>
-                      {(results || []).map((r, i) => (
-                        <Box
-                          key={i}
-                          display="flex"
-                          alignItems="center"
-                          gap="2"
-                          padding="2"
-                          borderColor="neutral-surfaceHighlight"
-                          borderStyle="solid"
-                          borderWidth="1"
-                          borderRadius="2"
-                        >
-                          <Text>{r.success ? '✅' : '❌'}</Text>
-                          <Text flex="1 1 auto">{r.title}</Text>
-                          {r.overwritten && <Tag appearance="primary">Actualizado</Tag>}
-                        </Box>
-                      ))}
-                    </>
+                    <Alert appearance="success" title="¡Importación completada!">
+                      <Text>
+                        {successCount} de {results.length} posts importados correctamente
+                        {failCount > 0 && ` · ${failCount} fallaron`}
+                      </Text>
+                    </Alert>
                   )}
+
+                  {results.map((r, i) => (
+                    <Box
+                      key={i}
+                      display="flex"
+                      alignItems="center"
+                      gap="2"
+                      padding="2"
+                      borderColor="neutral-surfaceHighlight"
+                      borderStyle="solid"
+                      borderWidth="1"
+                      borderRadius="2"
+                    >
+                      <Text>{r.success ? '✅' : '❌'}</Text>
+                      <Text flex="1 1 auto">{r.title}</Text>
+                      {r.overwritten && <Tag appearance="primary">Actualizado</Tag>}
+                    </Box>
+                  ))}
+
                   <Button appearance="primary" onClick={reset}>Nueva importación</Button>
                 </Box>
               </Card.Body>
             </Card>
           )}
-        </>
-      )}
+        </Tabs.Item>
 
-      {/* ═══ HISTORY TAB ═══ */}
-      {activeTab === 'history' && (
-        <Card>
-          <Card.Body>
-            <Box display="flex" flexDirection="column" gap="4">
-              <Title as="h2">Historial de importaciones</Title>
-              {loadingHistory ? (
-                <Box display="flex" justifyContent="center" padding="8">
-                  <Spinner size="large" />
+        {/* ── Tab Historial ── */}
+        <Tabs.Item label="Historial">
+          <Box paddingTop="4">
+            <Card>
+              <Card.Body>
+                <Box display="flex" flexDirection="column" gap="4">
+                  <Title as="h2">Historial de importaciones</Title>
+                  {loadingHistory ? (
+                    <Box display="flex" justifyContent="center" padding="8">
+                      <Spinner size="large" />
+                    </Box>
+                  ) : history.length === 0 ? (
+                    <Box display="flex" flexDirection="column" alignItems="center" gap="2" padding="8">
+                      <Text color="neutral-textDisabled">No hay importaciones anteriores.</Text>
+                    </Box>
+                  ) : (
+                    history.map((entry) => (
+                      <Box
+                        key={entry.id}
+                        padding="3"
+                        borderColor="neutral-surfaceHighlight"
+                        borderStyle="solid"
+                        borderWidth="1"
+                        borderRadius="2"
+                        display="flex"
+                        flexDirection="column"
+                        gap="2"
+                      >
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Text fontWeight="bold">{entry.source_url}</Text>
+                          <Text fontSize="caption" color="neutral-textLow">
+                            {new Date(entry.created_at).toLocaleDateString('es-AR', {
+                              day: '2-digit', month: 'short', year: 'numeric',
+                              hour: '2-digit', minute: '2-digit'
+                            })}
+                          </Text>
+                        </Box>
+                        <Box display="flex" gap="2">
+                          <Tag appearance="success">{entry.successful} exitosos</Tag>
+                          {entry.failed > 0 && <Tag appearance="danger">{entry.failed} fallidos</Tag>}
+                          <Tag appearance="neutral">Total: {entry.total_posts}</Tag>
+                        </Box>
+                      </Box>
+                    ))
+                  )}
                 </Box>
-              ) : history.length === 0 ? (
-                <Text color="neutral-textDisabled">No hay importaciones anteriores.</Text>
-              ) : (
-                history.map((entry) => (
-                  <Box
-                    key={entry.id}
-                    padding="3"
-                    borderColor="neutral-surfaceHighlight"
-                    borderStyle="solid"
-                    borderWidth="1"
-                    borderRadius="2"
-                    display="flex"
-                    flexDirection="column"
-                    gap="1"
-                  >
-                    <Box display="flex" justifyContent="space-between" alignItems="center">
-                      <Text fontWeight="bold">{entry.source_url}</Text>
-                      <Text fontSize="caption" color="neutral-textDisabled">
-                        {new Date(entry.created_at).toLocaleDateString('es-AR', {
-                          day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-                        })}
-                      </Text>
-                    </Box>
-                    <Box display="flex" gap="2">
-                      <Tag appearance="success">{entry.successful} exitosos</Tag>
-                      {entry.failed > 0 && <Tag appearance="danger">{entry.failed} fallidos</Tag>}
-                      <Tag appearance="neutral">Total: {entry.total_posts}</Tag>
-                    </Box>
-                  </Box>
-                ))
+              </Card.Body>
+            </Card>
+          </Box>
+        </Tabs.Item>
+      </Tabs>
+
+      {/* ── Sidebar preview de post ── */}
+      <Sidebar
+        open={sidebarOpen}
+        onRemove={() => setSidebarOpen(false)}
+        maxWidth="480px"
+      >
+        <Sidebar.Header title={previewPost?.title || ''} />
+        <Sidebar.Body>
+          {previewPost && (
+            <Box display="flex" flexDirection="column" gap="4">
+              {previewPost.thumbnail && (
+                <Thumbnail
+                  src={previewPost.thumbnail}
+                  alt={previewPost.title}
+                  width="100%"
+                  aspectRatio="16/9"
+                />
               )}
+              <Text fontSize="caption" color="neutral-textLow">
+                {new Date(previewPost.date).toLocaleDateString('es-AR', {
+                  day: '2-digit', month: 'long', year: 'numeric'
+                })}
+              </Text>
+              <Text>{previewPost.excerpt || 'Sin descripción disponible.'}</Text>
+              <Button appearance="neutral" as="a" href={previewPost.link} target="_blank">
+                Ver en WordPress ↗
+              </Button>
             </Box>
-          </Card.Body>
-        </Card>
-      )}
+          )}
+        </Sidebar.Body>
+        <Sidebar.Footer>
+          <Box display="flex" gap="2">
+            <Button
+              appearance="neutral"
+              onClick={() => setSidebarOpen(false)}
+            >
+              Cerrar
+            </Button>
+            <Button
+              appearance={previewPost && selectedIds.has(previewPost.wpId) ? 'danger' : 'primary'}
+              onClick={() => {
+                if (previewPost) {
+                  toggleSelect(previewPost.wpId);
+                  setSidebarOpen(false);
+                }
+              }}
+            >
+              {previewPost && selectedIds.has(previewPost.wpId) ? 'Deseleccionar' : 'Seleccionar'}
+            </Button>
+          </Box>
+        </Sidebar.Footer>
+      </Sidebar>
+
     </Box>
   );
 }
