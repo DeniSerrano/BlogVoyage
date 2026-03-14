@@ -29,6 +29,7 @@ import {
   CheckCircleIcon,
   EditIcon,
   HeartIcon,
+  StarIcon,
 } from '@nimbus-ds/icons';
 
 interface WPPost {
@@ -327,27 +328,6 @@ export default function Page() {
       </Box>
     );
   }
-
-  // ─── Banner Cafecito ───
-  const CafecitoCallout = (
-    <CalloutCard
-      appearance="primary"
-      icon={HeartIcon}
-      title="¿Te es útil BlogVoyage?"
-      subtitle="Si la app te ayuda, podés invitarme un cafecito. ¡Cualquier contribución es bienvenida!"
-      link={
-        <Link
-          as="a"
-          href="https://cafecito.app/donatio"
-          target="_blank"
-          appearance="primary"
-          textDecoration="none"
-        >
-          Invitar un cafecito ☕
-        </Link>
-      }
-    />
-  );
 
   const WelcomeScreen = (
     <InitialScreen>
@@ -672,9 +652,42 @@ export default function Page() {
         </Tabs.Item>
       </Tabs>
 
-      {/* ── Banner Cafecito ── */}
-      <Box paddingTop="2">
-        {CafecitoCallout}
+      {/* ── Banners al pie ── */}
+      <Box display="flex" flexDirection="column" gap="3" paddingTop="2">
+        <CalloutCard
+          appearance="primary"
+          icon={StarIcon}
+          title="¿Te está siendo útil BlogVoyage?"
+          subtitle="Tu reseña ayuda a que más merchants descubran la app. ¡Solo lleva un minuto!"
+          link={
+            <Link
+              as="a"
+              href="https://www.tiendanube.com/tienda-aplicaciones-nube/blogvoyage/rating"
+              target="_blank"
+              appearance="primary"
+              textDecoration="none"
+            >
+              Dejar una reseña →
+            </Link>
+          }
+        />
+        <CalloutCard
+          appearance="neutral"
+          icon={HeartIcon}
+          title="¿Querés apoyar el proyecto?"
+          subtitle="BlogVoyage es gratuita y de desarrollo independiente. Cualquier cafecito es bienvenido."
+          link={
+            <Link
+              as="a"
+              href="https://cafecito.app/donatio"
+              target="_blank"
+              appearance="primary"
+              textDecoration="none"
+            >
+              Invitar un cafecito ☕
+            </Link>
+          }
+        />
       </Box>
 
       <Sidebar open={sidebarOpen} onRemove={() => setSidebarOpen(false)} maxWidth={{ xs: '100%', md: '480px' }}>
