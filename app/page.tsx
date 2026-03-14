@@ -18,8 +18,9 @@ import {
   Sidebar,
   Stepper,
   Icon,
+  Link,
 } from '@nimbus-ds/components';
-import { InitialScreen } from '@nimbus-ds/patterns';
+import { InitialScreen, CalloutCard } from '@nimbus-ds/patterns';
 import {
   FileAltIcon,
   RocketIcon,
@@ -27,6 +28,7 @@ import {
   GlobeIcon,
   CheckCircleIcon,
   EditIcon,
+  HeartIcon,
 } from '@nimbus-ds/icons';
 
 interface WPPost {
@@ -117,7 +119,6 @@ export default function Page() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ imported: number; failed: number } | null>(null);
 
-  // ─── Init Nexo ───
   useEffect(() => {
     async function initNexo() {
       try {
@@ -147,7 +148,6 @@ export default function Page() {
     initNexo();
   }, []);
 
-  // ─── Cargar URL y settings ───
   const loadSettings = useCallback(async () => {
     if (!storeId) return;
     try {
@@ -165,7 +165,6 @@ export default function Page() {
     if (storeId) loadSettings();
   }, [storeId, loadSettings]);
 
-  // ─── Load history ───
   const loadHistory = useCallback(async () => {
     if (!storeId) return;
     setLoadingHistory(true);
@@ -180,7 +179,6 @@ export default function Page() {
     if (activeTab === 1 && storeId) loadHistory();
   }, [activeTab, storeId, loadHistory]);
 
-  // ─── Guardar URL ───
   const handleSaveUrl = async () => {
     if (!storeId || !url) return;
     setUrlSaving(true);
@@ -196,7 +194,6 @@ export default function Page() {
     setUrlSaving(false);
   };
 
-  // ─── Autosync toggle ───
   const handleAutosyncToggle = async (field: 'enabled' | 'publish', value: boolean) => {
     if (!storeId) return;
     if (field === 'enabled') setAutosyncEnabled(value);
@@ -212,7 +209,6 @@ export default function Page() {
     });
   };
 
-  // ─── Sync manual ───
   const handleManualSync = async () => {
     if (!storeId) return;
     setSyncing(true);
@@ -231,7 +227,6 @@ export default function Page() {
     setSyncing(false);
   };
 
-  // ─── Preview ───
   const handlePreview = async () => {
     setLoading(true);
     setError('');
@@ -263,7 +258,6 @@ export default function Page() {
     setLoading(false);
   };
 
-  // ─── Import ───
   const handleImport = async () => {
     if (!storeId) { setError('No se pudo identificar la tienda. Recargá la app.'); return; }
     setImporting(true);
@@ -334,6 +328,27 @@ export default function Page() {
     );
   }
 
+  // ─── Banner Cafecito ───
+  const CafecitoCallout = (
+    <CalloutCard
+      appearance="primary"
+      icon={HeartIcon}
+      title="¿Te es útil BlogVoyage?"
+      subtitle="Si la app te ayuda, podés invitarme un cafecito. ¡Cualquier contribución es bienvenida!"
+      link={
+        <Link
+          as="a"
+          href="https://cafecito.app/donatio"
+          target="_blank"
+          appearance="primary"
+          textDecoration="none"
+        >
+          Invitar un cafecito ☕
+        </Link>
+      }
+    />
+  );
+
   const WelcomeScreen = (
     <InitialScreen>
       <InitialScreen.Hero
@@ -365,7 +380,6 @@ export default function Page() {
           <Alert appearance="success" title="Blog conectado">
             <Text>Tu blog de WordPress está configurado y listo para importar.</Text>
           </Alert>
-
           <Card>
             <Card.Header title="Tu blog de WordPress" />
             <Card.Body>
@@ -391,7 +405,6 @@ export default function Page() {
               </Box>
             </Card.Body>
           </Card>
-
           <Card>
             <Card.Header title="Sincronización automática" />
             <Card.Body>
@@ -466,7 +479,6 @@ export default function Page() {
       <Title as="h1">BlogVoyage</Title>
 
       <Tabs preSelectedTab={0} selected={activeTab} onTabSelect={(i) => setActiveTab(i as TabIndex)}>
-
         <Tabs.Item label="Importar">
           {!isBlogConfigured && activeStep === 0 && WelcomeScreen}
 
@@ -539,7 +551,6 @@ export default function Page() {
                         {selectedIds.size === posts.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
                       </Button>
                     </Box>
-
                     {posts.map((post) => {
                       const isDup = duplicates[post.slug];
                       const isSelected = selectedIds.has(post.wpId);
@@ -582,7 +593,6 @@ export default function Page() {
                         </Box>
                       );
                     })}
-
                     <Box display="flex" gap="2" paddingTop="2">
                       <Button appearance="neutral" onClick={reset}>Volver</Button>
                       <Button appearance="primary" onClick={handleImport} disabled={selectedIds.size === 0 || !storeId || importing}>
@@ -660,8 +670,12 @@ export default function Page() {
         <Tabs.Item label="Mi blog">
           {MyBlogTab}
         </Tabs.Item>
-
       </Tabs>
+
+      {/* ── Banner Cafecito ── */}
+      <Box paddingTop="2">
+        {CafecitoCallout}
+      </Box>
 
       <Sidebar open={sidebarOpen} onRemove={() => setSidebarOpen(false)} maxWidth={{ xs: '100%', md: '480px' }}>
         <Sidebar.Header title={previewPost?.title || ''} />
