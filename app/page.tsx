@@ -20,7 +20,7 @@ import {
   Icon,
   Link,
 } from '@nimbus-ds/components';
-import { InitialScreen, CalloutCard } from '@nimbus-ds/patterns';
+import { InitialScreen, CalloutCard, Layout } from '@nimbus-ds/patterns';
 import {
   FileAltIcon,
   RocketIcon,
@@ -31,6 +31,7 @@ import {
   HeartIcon,
   StarIcon,
   SearchIcon,
+  PictureIcon,
 } from '@nimbus-ds/icons';
 
 interface WPPost {
@@ -105,6 +106,9 @@ export default function Page() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [duplicates, setDuplicates] = useState<Record<string, boolean>>({});
   const [overwrite, setOverwrite] = useState(false);
+  const [migrateImages, setMigrateImages] = useState(true);
+  const [preserveSeo, setPreserveSeo] = useState(true);
+  const [publishDirect, setPublishDirect] = useState(true);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<ImportResult[]>([]);
@@ -270,7 +274,15 @@ export default function Page() {
       const data = await safeFetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wpUrl: savedWpUrl || url, storeId, selectedIds: Array.from(selectedIds), overwrite }),
+        body: JSON.stringify({
+          wpUrl: savedWpUrl || url,
+          storeId,
+          selectedIds: Array.from(selectedIds),
+          overwrite,
+          migrateImages,
+          preserveSeo,
+          publishDirect,
+        }),
       });
       if (data.success && Array.isArray(data.processed)) {
         setResults(data.processed);
@@ -316,6 +328,11 @@ export default function Page() {
     p.title.toLowerCase().includes(search.toLowerCase())
   );
 
+  // ─── Stats para el panel de resumen ───
+  const selectedPosts = posts.filter((p) => selectedIds.has(p.wpId));
+  const imagesCount = selectedPosts.filter((p) => p.thumbnail).length;
+  const estimatedSeconds = selectedPosts.length * 2;
+
   const hasDuplicates = Object.values(duplicates).some(Boolean);
   const selectedDuplicates = posts.filter((p) => selectedIds.has(p.wpId) && duplicates[p.slug]).length;
   const successCount = results.filter((r) => r.success).length;
@@ -359,6 +376,78 @@ export default function Page() {
         }
       />
     </InitialScreen>
+  );
+
+  // ─── Panel de resumen ───
+  const SummaryPanel = (
+    <Box display="flex" flexDirection="column" gap="3" position="sticky" top="0">
+      <Card>
+        <Card.Header title="Resumen" />
+        <Card.Body>
+          <Box display="flex" flexDirection="column" gap="3">
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Text color="neutral-textLow">Posts seleccionados</Text>
+              <Text fontWeight="bold">{selectedIds.size} / {posts.length}</Text>
+            </Box>
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Box display="flex" alignItems="center" gap="1">
+                <Icon source={<PictureIcon />} color="neutral-textLow" />
+                <Text color="neutral-textLow">Imágenes</Text>
+              </Box>
+              <Text fontWeight="bold">{migrateImages ? imagesCount : 0}</Text>
+            </Box>
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Text color="neutral-textLow">Tiempo estimado</Text>
+              <Text fontWeight="bold">~{estimatedSeconds} seg</Text>
+            </Box>
+          </Box>
+        </Card.Body>
+      </Card>
+
+      <Card>
+        <Card.Header title="Opciones" />
+        <Card.Body>
+          <Box display="flex" flexDirection="column" gap="3">
+            <Checkbox
+              name="migrate_images"
+              label="Migrar imágenes"
+              checked={migrateImages}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMigrateImages(e.target.checked)}
+            />
+            <Checkbox
+              name="preserve_seo"
+              label="Preservar SEO"
+              checked={preserveSeo}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPreserveSeo(e.target.checked)}
+            />
+            <Checkbox
+              name="publish_direct"
+              label="Publicar directo"
+              checked={publishDirect}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPublishDirect(e.target.checked)}
+            />
+            {hasDuplicates && (
+              <Checkbox
+                name="overwrite"
+                label={`Sobreescribir duplicados (${selectedDuplicates})`}
+                checked={overwrite}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOverwrite(e.target.checked)}
+              />
+            )}
+          </Box>
+        </Card.Body>
+      </Card>
+
+      <Button
+        appearance="primary"
+        onClick={handleImport}
+        disabled={selectedIds.size === 0 || !storeId || importing}
+      >
+        {importing ? (
+          <Box display="flex" alignItems="center" gap="2"><Spinner size="small" /><Text>Importando...</Text></Box>
+        ) : `Importar ${selectedIds.size} post${selectedIds.size !== 1 ? 's' : ''}`}
+      </Button>
+    </Box>
   );
 
   const MyBlogTab = (
@@ -512,104 +601,94 @@ export default function Page() {
             </Box>
           )}
 
+          {/* ── Paso 1: Selección con layout 2 columnas ── */}
           {selectedStep === 1 && (
-            <Box display="flex" flexDirection="column" gap="4">
-              {hasDuplicates && (
-                <Alert appearance="warning" title="Hay posts duplicados">
-                  <Box display="flex" flexDirection="column" gap="2">
-                    <Text>Algunos posts ya existen en tu tienda.</Text>
-                    <Checkbox
-                      name="overwrite"
-                      label={`Sobreescribir existentes (${selectedDuplicates} seleccionados)`}
-                      checked={overwrite}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOverwrite(e.target.checked)}
-                    />
-                  </Box>
-                </Alert>
-              )}
-              <Card>
-                <Card.Body>
-                  <Box display="flex" flexDirection="column" gap="3">
-                    <Box display="flex" justifyContent="space-between" alignItems="center">
-                      <Box display="flex" flexDirection="column" gap="1">
-                        <Title as="h2">{posts.length} posts encontrados</Title>
-                        <Text color="neutral-textLow">{selectedIds.size} seleccionados</Text>
-                      </Box>
-                      <Button appearance="neutral" size="small" onClick={toggleSelectAll}>
-                        {selectedIds.size === posts.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
-                      </Button>
-                    </Box>
-
-                    {/* ── Buscador ── */}
-                    <Input
-                      label=""
-                      placeholder="Buscar por título..."
-                      value={search}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-                      append={<Icon source={<SearchIcon />} color="neutral-textDisabled" />}
-                    />
-
-                    {filteredPosts.length === 0 && search && (
-                      <Box display="flex" justifyContent="center" padding="4">
-                        <Text color="neutral-textDisabled">No se encontraron posts con ese título.</Text>
-                      </Box>
-                    )}
-
-                    {filteredPosts.map((post) => {
-                      const isDup = duplicates[post.slug];
-                      const isSelected = selectedIds.has(post.wpId);
-                      return (
-                        <Box
-                          key={post.wpId}
-                          display="flex"
-                          alignItems="center"
-                          gap="3"
-                          padding="3"
-                          borderColor={isSelected ? 'primary-interactive' : 'neutral-surfaceHighlight'}
-                          borderStyle="solid"
-                          borderWidth="1"
-                          borderRadius="2"
-                          backgroundColor={isSelected ? 'primary-surface' : 'neutral-background'}
-                        >
-                          <Checkbox
-                            name={`post-${post.wpId}`}
-                            checked={isSelected}
-                            onChange={() => toggleSelect(post.wpId)}
-                            label=""
-                          />
-                          {post.thumbnail ? (
-                            <Thumbnail src={post.thumbnail} alt={post.title} width="64px" aspectRatio="16/9" />
-                          ) : (
-                            <Box width="64px" height="36px" backgroundColor="neutral-surfaceHighlight" borderRadius="1" flexShrink={0} />
-                          )}
-                          <Box display="flex" flexDirection="column" gap="1" flex="1 1 auto">
-                            <Box display="flex" alignItems="center" gap="2" flexWrap="wrap">
-                              <Text fontWeight="bold">{post.title}</Text>
-                              {isDup && <Tag appearance="warning">Duplicado</Tag>}
-                            </Box>
-                            <Text fontSize="caption" color="neutral-textLow">
-                              {new Date(post.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                            </Text>
+            <Layout columns="2 - asymmetric">
+              <Layout.Section>
+                <Box display="flex" flexDirection="column" gap="3">
+                  <Card>
+                    <Card.Body>
+                      <Box display="flex" flexDirection="column" gap="3">
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Box display="flex" flexDirection="column" gap="1">
+                            <Title as="h2">{posts.length} posts encontrados</Title>
+                            <Text color="neutral-textLow">{selectedIds.size} seleccionados</Text>
                           </Box>
-                          <Button appearance="neutral" size="small" onClick={() => { setPreviewPost(post); setSidebarOpen(true); }}>
-                            Ver
+                          <Button appearance="neutral" size="small" onClick={toggleSelectAll}>
+                            {selectedIds.size === posts.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
                           </Button>
                         </Box>
-                      );
-                    })}
 
-                    <Box display="flex" gap="2" paddingTop="2">
-                      <Button appearance="neutral" onClick={reset}>Volver</Button>
-                      <Button appearance="primary" onClick={handleImport} disabled={selectedIds.size === 0 || !storeId || importing}>
-                        {importing ? (
-                          <Box display="flex" alignItems="center" gap="2"><Spinner size="small" /><Text>Importando...</Text></Box>
-                        ) : `Importar ${selectedIds.size} post${selectedIds.size !== 1 ? 's' : ''}`}
-                      </Button>
-                    </Box>
-                  </Box>
-                </Card.Body>
-              </Card>
-            </Box>
+                        <Input
+                          label=""
+                          placeholder="Buscar por título..."
+                          value={search}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+                          append={<Icon source={<SearchIcon />} color="neutral-textDisabled" />}
+                        />
+
+                        {filteredPosts.length === 0 && search && (
+                          <Box display="flex" justifyContent="center" padding="4">
+                            <Text color="neutral-textDisabled">No se encontraron posts con ese título.</Text>
+                          </Box>
+                        )}
+
+                        {filteredPosts.map((post) => {
+                          const isDup = duplicates[post.slug];
+                          const isSelected = selectedIds.has(post.wpId);
+                          return (
+                            <Box
+                              key={post.wpId}
+                              display="flex"
+                              alignItems="center"
+                              gap="3"
+                              padding="3"
+                              borderColor={isSelected ? 'primary-interactive' : 'neutral-surfaceHighlight'}
+                              borderStyle="solid"
+                              borderWidth="1"
+                              borderRadius="2"
+                              backgroundColor={isSelected ? 'primary-surface' : 'neutral-background'}
+                            >
+                              <Checkbox
+                                name={`post-${post.wpId}`}
+                                checked={isSelected}
+                                onChange={() => toggleSelect(post.wpId)}
+                                label=""
+                              />
+                              {post.thumbnail ? (
+                                <Thumbnail src={post.thumbnail} alt={post.title} width="64px" aspectRatio="16/9" />
+                              ) : (
+                                <Box width="64px" height="36px" backgroundColor="neutral-surfaceHighlight" borderRadius="1" flexShrink={0} />
+                              )}
+                              <Box display="flex" flexDirection="column" gap="1" flex="1 1 auto">
+                                <Box display="flex" alignItems="center" gap="2" flexWrap="wrap">
+                                  <Text fontWeight="bold">{post.title}</Text>
+                                  {isDup && <Tag appearance="warning">Duplicado</Tag>}
+                                </Box>
+                                <Text fontSize="caption" color="neutral-textLow">
+                                  {new Date(post.date).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </Text>
+                              </Box>
+                              <Button appearance="neutral" size="small" onClick={() => { setPreviewPost(post); setSidebarOpen(true); }}>
+                                Ver
+                              </Button>
+                            </Box>
+                          );
+                        })}
+
+                        <Box display="flex" gap="2" paddingTop="2">
+                          <Button appearance="neutral" onClick={reset}>Volver</Button>
+                        </Box>
+                      </Box>
+                    </Card.Body>
+                  </Card>
+                </Box>
+              </Layout.Section>
+
+              <Layout.Section>
+                {SummaryPanel}
+              </Layout.Section>
+            </Layout>
           )}
 
           {selectedStep === 2 && (
@@ -677,7 +756,6 @@ export default function Page() {
         </Tabs.Item>
       </Tabs>
 
-      {/* ── Banners al pie ── */}
       <Box display="flex" flexDirection="column" gap="3" paddingTop="2">
         <CalloutCard
           appearance="primary"
@@ -685,13 +763,7 @@ export default function Page() {
           title="¿Te está siendo útil BlogVoyage?"
           subtitle="Tu reseña ayuda a que más merchants descubran la app. ¡Solo lleva un minuto!"
           link={
-            <Link
-              as="a"
-              href="https://www.tiendanube.com/tienda-aplicaciones-nube/blogvoyage/rating"
-              target="_blank"
-              appearance="primary"
-              textDecoration="none"
-            >
+            <Link as="a" href="https://www.tiendanube.com/tienda-aplicaciones-nube/blogvoyage/rating" target="_blank" appearance="primary" textDecoration="none">
               Dejar una reseña →
             </Link>
           }
@@ -702,13 +774,7 @@ export default function Page() {
           title="¿Querés apoyar el proyecto?"
           subtitle="BlogVoyage es gratuita y de desarrollo independiente. Cualquier cafecito es bienvenido."
           link={
-            <Link
-              as="a"
-              href="https://cafecito.app/donatio"
-              target="_blank"
-              appearance="primary"
-              textDecoration="none"
-            >
+            <Link as="a" href="https://cafecito.app/donatio" target="_blank" appearance="primary" textDecoration="none">
               Invitar un cafecito ☕
             </Link>
           }
