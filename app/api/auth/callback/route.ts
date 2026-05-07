@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { setTienda, setLastStoreId } from '@/lib/kv';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -59,16 +64,22 @@ export async function GET(request: Request) {
       console.warn(`No se pudo obtener blog_id para tienda ${storeId}:`, err);
     }
 
-    await setTienda({
-      store_id: storeId,
-      access_token: data.access_token,
-      blog_id: blogId,
-      store_name: storeData.name?.es || storeData.name?.pt || storeData.name?.en || '',
-      store_url: storeData.url_with_protocol || '',
-      store_email: storeData.email || '',
-    });
+    const { error: dbError } = await supabase.from('tiendas').upsert(
+      {
+        store_id: storeId,
+        access_token: data.access_token,
+        store_name: storeData.name?.es || storeData.name?.pt || storeData.name?.en || '',
+        store_url: storeData.url_with_protocol || '',
+        store_email: storeData.email || '',
+        ...(blogId ? { blog_id: blogId } : {}),
+      },
+      { onConflict: 'store_id' }
+    );
 
-    await setLastStoreId(storeId);
+    if (dbError) {
+      console.error('Error guardando en Supabase:', dbError);
+      return NextResponse.json({ error: 'Error guardando credenciales' }, { status: 500 });
+    }
 
     console.log(`Tienda ${storeId} autenticada. blog_id: ${blogId ?? 'no disponible'}`);
 
