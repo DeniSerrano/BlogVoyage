@@ -1,10 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { setTienda, setLastStoreId } from '@/lib/kv';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -15,7 +10,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Intercambiar el code por access_token
     const response = await fetch('https://www.tiendanube.com/apps/authorize/token', {
       method: 'POST',
       headers: {
@@ -33,11 +27,8 @@ export async function GET(request: Request) {
     const data = await response.json();
 
     if (!data.access_token || !data.user_id) {
-      console.error('Error de Tiendanube:', data);
-      return NextResponse.json(
-        { error: 'No se pudo obtener el token', details: data },
-        { status: 401 }
-      );
+      console.error('Error de Tiendanube:', JSON.stringify(data));
+      return NextResponse.json({ error: 'No se pudo obtener el token' }, { status: 401 });
     }
 
     const storeId = String(data.user_id);
@@ -47,14 +38,13 @@ export async function GET(request: Request) {
       'Content-Type': 'application/json',
     };
 
-    // Obtener info de la tienda para el redirect correcto
     const storeRes = await fetch(
       `https://api.tiendanube.com/2025-03/${storeId}/store`,
       { headers: tnHeaders }
     );
     const storeData = await storeRes.json();
 
-    // Obtener blog_id automáticamente desde la API
+    // Obtener blog_id automáticamente
     let blogId: string | null = null;
     try {
       const blogsRes = await fetch(
@@ -63,38 +53,28 @@ export async function GET(request: Request) {
       );
       if (blogsRes.ok) {
         const blogsData = await blogsRes.json();
-        blogId = blogsData?.blog_id || null;
+        blogId = blogsData?.blog_id ?? null;
       }
     } catch (err) {
       console.warn(`No se pudo obtener blog_id para tienda ${storeId}:`, err);
     }
 
-    // Guardar en Supabase
-    const { error: dbError } = await supabase.from('tiendas').upsert(
-      {
-        store_id: storeId,
-        access_token: data.access_token,
-        store_name: storeData.name?.es || storeData.name?.pt || storeData.name?.en || '',
-        store_url: storeData.url_with_protocol || '',
-        store_email: storeData.email || '',
-        ...(blogId ? { blog_id: blogId } : {}),
-      },
-      { onConflict: 'store_id' }
-    );
+    await setTienda({
+      store_id: storeId,
+      access_token: data.access_token,
+      blog_id: blogId,
+      store_name: storeData.name?.es || storeData.name?.pt || storeData.name?.en || '',
+      store_url: storeData.url_with_protocol || '',
+      store_email: storeData.email || '',
+    });
 
-    if (dbError) {
-      console.error('Error guardando en Supabase:', dbError);
-      return NextResponse.json({ error: 'Error guardando credenciales' }, { status: 500 });
-    }
+    await setLastStoreId(storeId);
 
     console.log(`Tienda ${storeId} autenticada. blog_id: ${blogId ?? 'no disponible'}`);
 
-    // Redirigir al admin de la tienda
     const originalDomain = storeData.original_domain || storeData.main_domain;
     const appId = process.env.TIENDANUBE_CLIENT_ID;
-    const redirectUrl = `https://${originalDomain}/admin/apps/${appId}/`;
-
-    return NextResponse.redirect(redirectUrl);
+    return NextResponse.redirect(`https://${originalDomain}/admin/apps/${appId}/`);
   } catch (error: any) {
     console.error('Error en callback:', error.message);
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });
