@@ -28,7 +28,6 @@ import {
   GlobeIcon,
   CheckCircleIcon,
   EditIcon,
-  HeartIcon,
   StarIcon,
   SearchIcon,
   PictureIcon,
@@ -328,7 +327,6 @@ export default function Page() {
     p.title.toLowerCase().includes(search.toLowerCase())
   );
 
-  // ─── Stats para el panel de resumen ───
   const selectedPosts = posts.filter((p) => selectedIds.has(p.wpId));
   const imagesCount = selectedPosts.filter((p) => p.thumbnail).length;
   const estimatedSeconds = selectedPosts.length * 2;
@@ -378,7 +376,6 @@ export default function Page() {
     </InitialScreen>
   );
 
-  // ─── Panel de resumen ───
   const SummaryPanel = (
     <Box display="flex" flexDirection="column" gap="3" position="sticky" top="0">
       <Card>
@@ -601,7 +598,6 @@ export default function Page() {
             </Box>
           )}
 
-          {/* ── Paso 1: Selección con layout 2 columnas ── */}
           {selectedStep === 1 && (
             <Layout columns="2 - asymmetric">
               <Layout.Section>
@@ -765,17 +761,6 @@ export default function Page() {
           link={
             <Link as="a" href="https://www.tiendanube.com/tienda-aplicaciones-nube/blogvoyage/rating" target="_blank" appearance="primary" textDecoration="none">
               Dejar una reseña →
-            </Link>
-          }
-        />
-        <CalloutCard
-          appearance="neutral"
-          icon={HeartIcon}
-          title="¿Querés apoyar el proyecto?"
-          subtitle="BlogVoyage es gratuita y de desarrollo independiente. Cualquier cafecito es bienvenido."
-          link={
-            <Link as="a" href="https://cafecito.app/donatio" target="_blank" appearance="primary" textDecoration="none">
-              Invitar un cafecito ☕
             </Link>
           }
         />
